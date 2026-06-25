@@ -99,6 +99,14 @@ function fmtDate(sec) {
   if (!sec) return "—";
   try { return new Date(sec * 1000).toLocaleString("fa-IR"); } catch { return String(sec); }
 }
+// daysLeftLabel returns a small colored " (N روز)" suffix for an expiry epoch.
+function daysLeftLabel(endAt) {
+  if (!endAt) return "";
+  const days = Math.floor((endAt - Date.now() / 1000) / 86400);
+  if (days < 0) return ` <span style="color:var(--danger);font-size:12px">(منقضی)</span>`;
+  const col = days <= 3 ? "var(--danger)" : days <= 7 ? "var(--warn)" : "var(--muted, #94a3b8)";
+  return ` <span style="color:${col};font-size:12px">(${days} روز)</span>`;
+}
 const STATUS_FA = { active: "فعال", suspended: "معلق", expired: "منقضی", online: "آنلاین", offline: "آفلاین", unknown: "نامشخص" };
 const badge = (s) => `<span class="badge ${esc(s)}">${STATUS_FA[s] || esc(s)}</span>`;
 function progress(used, quota) {
@@ -262,12 +270,46 @@ async function viewDashboard(view) {
     api("/api/v1/plans"),
   ]);
   const online = nodes.filter((n) => n.status === "online").length;
+
+  // Gather subscriptions across customers for the alert lists.
+  const custName = Object.fromEntries(customers.map((c) => [c.id, c.name]));
+  const subs = [];
+  for (const c of customers) {
+    try { (await api(`/api/v1/customers/${c.id}/subscriptions`)).forEach((s) => subs.push(s)); } catch (_) {}
+  }
+  const now = Date.now() / 1000;
+  const active = subs.filter((s) => s.status === "active").length;
+  const expiring = subs
+    .filter((s) => s.end_at && s.end_at - now > 0 && s.end_at - now <= 7 * 86400)
+    .sort((a, b) => a.end_at - b.end_at);
+  const nearQuota = subs
+    .filter((s) => s.quota_bytes > 0 && s.used_bytes / s.quota_bytes >= 0.8)
+    .sort((a, b) => b.used_bytes / b.quota_bytes - a.used_bytes / a.quota_bytes);
+  const totalUsed = subs.reduce((a, s) => a + (s.used_bytes || 0), 0);
+
+  const listCard = (title, rows) =>
+    `<div class="card"><h3>${esc(title)}</h3>${
+      rows.length
+        ? table(["مشتری", "وضعیت", "مصرف", "انقضا"],
+            rows.slice(0, 8).map((s) => [
+              esc(custName[s.customer_id] || "—"),
+              badge(s.status),
+              progress(s.used_bytes, s.quota_bytes),
+              fmtDate(s.end_at) + daysLeftLabel(s.end_at),
+            ]))
+        : `<div class="empty">موردی نیست</div>`
+    }</div>`;
+
   view.innerHTML = `
     <div class="grid cols-4">
       ${statCard("نودها", nodes.length, `${online} آنلاین`)}
       ${statCard("مشتری‌ها", customers.length, "")}
-      ${statCard("پلن‌ها", plans.length, "")}
-      ${statCard("نودهای آفلاین", nodes.length - online, "")}
+      ${statCard("اشتراک‌های فعال", active, `از ${subs.length}`)}
+      ${statCard("مصرف کل", fmtBytes(totalUsed), "")}
+    </div>
+    <div class="grid cols-2" style="margin-top:18px">
+      ${listCard("رو به انقضا (۷ روز آینده)", expiring)}
+      ${listCard("نزدیک به اتمام حجم (≥۸۰٪)", nearQuota)}
     </div>
     <div class="card" style="margin-top:18px">
       <h3>نودها</h3>
@@ -482,8 +524,13 @@ async function customerDetail(id) {
     ${
       subs.length
         ? table(
-            ["وضعیت", "مصرف", "انقضا"],
-            subs.map((s) => [badge(s.status), progress(s.used_bytes, s.quota_bytes), fmtDate(s.end_at)])
+            ["وضعیت", "مصرف", "انقضا", ""],
+            subs.map((s) => [
+              badge(s.status),
+              progress(s.used_bytes, s.quota_bytes),
+              fmtDate(s.end_at),
+              s.sub_token ? `<button class="btn sm ghost" onclick="subLinkModal('${esc(s.sub_token)}')">لینک</button>` : "",
+            ])
           )
         : `<div class="empty">اشتراکی ندارد</div>`
     }
@@ -548,30 +595,65 @@ function subActions(s) {
       : `<button class="btn sm ghost" data-suspend="${s.id}">تعلیق</button>`;
   return `<div class="row" style="gap:6px">${toggle}
     <button class="btn sm ghost" data-conn="${s.id}">اتصال مشتری</button>
+    ${s.sub_token ? `<button class="btn sm ghost" data-sublink="${s.sub_token}">لینک</button>` : ""}
     <button class="btn sm ghost" data-topup="${s.id}">شارژ حجم</button>
     <button class="btn sm ghost" data-renew="${s.id}">تمدید</button>
     <button class="btn sm danger" data-delsub="${s.id}">حذف</button></div>`;
 }
 async function viewSubscriptions(view) {
-  const customers = await api("/api/v1/customers");
+  const [customers, nodes, plans] = await Promise.all([
+    api("/api/v1/customers"),
+    api("/api/v1/nodes"),
+    api("/api/v1/plans"),
+  ]);
+  const nodeName = Object.fromEntries(nodes.map((n) => [n.id, n.name]));
+  const planName = Object.fromEntries(plans.map((p) => [p.id, p.name]));
   const all = [];
   for (const c of customers) {
     const subs = await api(`/api/v1/customers/${c.id}/subscriptions`);
     subs.forEach((s) => all.push({ ...s, _customer: c.name }));
   }
+  const rowsHTML = (list) =>
+    list.length
+      ? table(
+          ["مشتری", "نود", "پلن", "وضعیت", "مصرف", "انقضا", "عملیات"],
+          list.map((s) => [
+            esc(s._customer),
+            esc(nodeName[s.node_id] || "—"),
+            esc(planName[s.plan_id] || "—"),
+            badge(s.status),
+            progress(s.used_bytes, s.quota_bytes),
+            fmtDate(s.end_at) + daysLeftLabel(s.end_at),
+            subActions(s),
+          ])
+        )
+      : `<div class="empty">موردی یافت نشد</div>`;
+
   view.innerHTML =
     sectionHead("اشتراک‌ها", `<button class="btn primary" id="addSub">+ اشتراک جدید</button>`) +
-    `<div class="card">${
-      all.length
-        ? table(
-            ["مشتری", "وضعیت", "مصرف", "انقضا", "عملیات"],
-            all.map((s) => [esc(s._customer), badge(s.status), progress(s.used_bytes, s.quota_bytes), fmtDate(s.end_at), subActions(s)])
-          )
-        : `<div class="empty">اشتراکی ثبت نشده است</div>`
-    }</div>`;
+    `<div class="card">
+       <input id="subSearch" class="search" placeholder="جست‌وجو: مشتری / نود / پلن / وضعیت" />
+       <div id="subTable">${rowsHTML(all)}</div>
+     </div>`;
+
+  const searchEl = document.getElementById("subSearch");
+  searchEl.oninput = () => {
+    const q = searchEl.value.trim().toLowerCase();
+    const f = q
+      ? all.filter((s) =>
+          [s._customer, nodeName[s.node_id], planName[s.plan_id], STATUS_FA[s.status] || s.status]
+            .some((x) => String(x || "").toLowerCase().includes(q)))
+      : all;
+    document.getElementById("subTable").innerHTML = rowsHTML(f);
+    wireSubActions(view);
+  };
 
   document.getElementById("addSub").onclick = () => guard(() => subscriptionModal(customers));
+  wireSubActions(view);
+}
 
+// wireSubActions binds the per-row action buttons (re-run after re-rendering rows).
+function wireSubActions(view) {
   view.querySelectorAll("[data-suspend]").forEach((b) =>
     (b.onclick = () => guard(async () => { await api(`/api/v1/subscriptions/${b.dataset.suspend}/suspend`, { method: "POST" }); toast("اشتراک معلق شد"); route(); }))
   );
@@ -591,8 +673,30 @@ async function viewSubscriptions(view) {
     (b.onclick = () => confirmModal("اشتراک تمدید شود؟ (مصرف صفر و انقضا تمدید می‌شود)", () => api(`/api/v1/subscriptions/${b.dataset.renew}/renew`, { method: "POST" }))));
   view.querySelectorAll("[data-conn]").forEach((b) =>
     (b.onclick = () => guard(() => connectionModal(b.dataset.conn))));
+  view.querySelectorAll("[data-sublink]").forEach((b) =>
+    (b.onclick = () => subLinkModal(b.dataset.sublink)));
   view.querySelectorAll("[data-delsub]").forEach((b) =>
     (b.onclick = () => confirmModal("این اشتراک حذف و از نود حذف شود؟", () => api(`/api/v1/subscriptions/${b.dataset.delsub}`, { method: "DELETE" }))));
+}
+
+// subLinkModal shows the public subscription link with copy/open actions.
+function subLinkModal(token) {
+  const link = location.origin + "/sub/" + token;
+  modal(
+    "لینک اشتراک مشتری",
+    `<p class="muted" style="font-size:12.5px;margin:0 0 8px">این لینک را به مشتری بده؛ کانفیگ نود و وضعیت حجم/انقضا را می‌بیند (نیازی به توکن ادمین ندارد).</p>
+     <div class="field"><input id="slv" readonly value="${esc(link)}" /></div>
+     <div class="actions">
+       <button class="btn primary" id="slCopy">کپی لینک</button>
+       <button class="btn ghost" id="slOpen">باز کردن</button>
+       <button class="btn ghost" id="slClose">بستن</button>
+     </div>`,
+    (root) => {
+      root.querySelector("#slCopy").onclick = () => { const i = root.querySelector("#slv"); i.select(); if (navigator.clipboard) navigator.clipboard.writeText(link); toast("کپی شد"); };
+      root.querySelector("#slOpen").onclick = () => window.open(link, "_blank");
+      root.querySelector("#slClose").onclick = closeModal;
+    }
+  );
 }
 async function subscriptionModal(customers) {
   const [plans, nodes] = await Promise.all([api("/api/v1/plans"), api("/api/v1/nodes")]);

@@ -111,6 +111,7 @@ body {
 
 /* ===== Components ===== */
 .grid { display: grid; gap: var(--gap); }
+.cols-2 { grid-template-columns: repeat(2, 1fr); }
 .cols-3 { grid-template-columns: repeat(3, 1fr); }
 .cols-4 { grid-template-columns: repeat(4, 1fr); }
 .card {
@@ -186,6 +187,9 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--muted); 
   html[dir="rtl"] .sidebar { inset-inline-end: 0; inset-inline-start: auto; transform: translateX(110%); }
   .sidebar.open { transform: translateX(0); }
   .hamburger { display: inline-flex; }
-  .cols-3, .cols-4 { grid-template-columns: 1fr; }
+  .cols-2, .cols-3, .cols-4 { grid-template-columns: 1fr; }
 }
-@media (max-width: 600px) { .cols-3, .cols-4 { grid-template-columns: 1fr; } .content { padding: 16px; } }
+@media (max-width: 600px) { .cols-2, .cols-3, .cols-4 { grid-template-columns: 1fr; } .content { padding: 16px; } }
+
+/* search box above tables */
+.search { margin-bottom: 14px; }
