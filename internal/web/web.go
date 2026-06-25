@@ -21,6 +21,14 @@ func FS() fs.FS {
 
 // Handler serves the static assets (SPA at /, styles, app.js, openapi.yaml,
 // docs.html). The SPA uses hash routing, so no server-side fallback is needed.
+//
+// A no-cache header is set so browsers always revalidate: otherwise, after a
+// binary upgrade, a cached app.js/index.html would keep showing the old UI.
 func Handler() http.Handler {
-	return http.FileServer(http.FS(FS()))
+	fileServer := http.FileServer(http.FS(FS()))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		fileServer.ServeHTTP(w, r)
+	})
 }
