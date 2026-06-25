@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,6 +26,7 @@ type registerNodeRequest struct {
 	Address   string          `json:"address"`
 	MasterKey string          `json:"master_key"`
 	CertPEM   string          `json:"cert_pem"`         // node's self-signed cert (PEM) to pin
+	GRPCPort  int             `json:"grpc_port"`        // PasarGuard-compat gRPC port (default 62050)
 	Config    json.RawMessage `json:"config,omitempty"` // optional fixed Xray config to push
 }
 
@@ -47,7 +50,7 @@ func (a *API) registerNode(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	node, err := a.store.CreateNode(req.Name, req.Address, req.MasterKey, req.CertPEM, string(req.Config))
+	node, err := a.store.CreateNode(req.Name, req.Address, req.MasterKey, req.CertPEM, string(req.Config), req.GRPCPort)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create node")
 		return
@@ -114,6 +117,64 @@ func (a *API) getNodeOr404(w http.ResponseWriter, id string) (*domain.Node, erro
 		return nil, err
 	}
 	return node, nil
+}
+
+// nodeDetailResponse exposes the full connection details of a node for the
+// operator: addresses, ports and the certificate (needed to register the node
+// in a customer's panel). The master key is never returned.
+type nodeDetailResponse struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Host        string `json:"host"`
+	Address     string `json:"address"`      // HTTP control address (panel -> node)
+	ServicePort int    `json:"service_port"` // HTTP control port
+	GRPCAddress string `json:"grpc_address"` // customer's panel -> node
+	GRPCPort    int    `json:"grpc_port"`
+	Protocol    string `json:"protocol"`
+	CertPEM     string `json:"cert_pem"`
+	Status      string `json:"status"`
+	Version     string `json:"version,omitempty"`
+	LastSeenAt  int64  `json:"last_seen_at,omitempty"`
+	CreatedAt   int64  `json:"created_at"`
+}
+
+// getNodeDetail returns a node's full connection info (host, service/gRPC ports,
+// certificate) so the operator can copy them and configure a customer's panel.
+func (a *API) getNodeDetail(w http.ResponseWriter, r *http.Request) {
+	node, err := a.store.GetNode(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "node not found")
+		return
+	}
+	grpcPort := node.GRPCPort
+	if grpcPort <= 0 {
+		grpcPort = 62050
+	}
+	writeJSON(w, http.StatusOK, nodeDetailResponse{
+		ID:          node.ID,
+		Name:        node.Name,
+		Host:        hostOf(node.Address),
+		Address:     node.Address,
+		ServicePort: servicePortOf(node.Address),
+		GRPCAddress: grpcAddressFor(node.Address, grpcPort),
+		GRPCPort:    grpcPort,
+		Protocol:    "grpc",
+		CertPEM:     node.CertPEM,
+		Status:      node.Status,
+		Version:     node.Version,
+		LastSeenAt:  node.LastSeenAt,
+		CreatedAt:   node.CreatedAt,
+	})
+}
+
+// servicePortOf extracts the HTTP control port from a node address (default 8090).
+func servicePortOf(address string) int {
+	if u, err := url.Parse(address); err == nil && u.Port() != "" {
+		if p, err := strconv.Atoi(u.Port()); err == nil {
+			return p
+		}
+	}
+	return 8090
 }
 
 func (a *API) deleteNode(w http.ResponseWriter, r *http.Request) {

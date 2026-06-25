@@ -46,7 +46,26 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
 
+	if err := migrate(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+
 	return &Store{db: db}, nil
+}
+
+// migrate applies idempotent, additive migrations for databases created by an
+// older schema. Adding a column that already exists is ignored.
+func migrate(db *sql.DB) error {
+	addColumns := []string{
+		`ALTER TABLE nodes ADD COLUMN grpc_port INTEGER NOT NULL DEFAULT 62050`,
+	}
+	for _, stmt := range addColumns {
+		if _, err := db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			return fmt.Errorf("statement %q: %w", firstLine(stmt), err)
+		}
+	}
+	return nil
 }
 
 // applySchema executes each statement in schema.sql individually so the code

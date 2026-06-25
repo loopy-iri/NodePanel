@@ -30,6 +30,7 @@ type Node struct {
 	MasterKey     string `json:"-"`
 	CertPEM       string `json:"-"`
 	ConfigJSON    string `json:"-"`
+	GRPCPort      int    `json:"grpc_port"`
 	Status        string `json:"status"`
 	Version       string `json:"version,omitempty"`
 	CapacityScore int    `json:"capacity_score"`

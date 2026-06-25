@@ -171,6 +171,7 @@ paths:
                 name: { type: string }
                 address: { type: string, example: "https://1.2.3.4:8090" }
                 master_key: { type: string }
+                grpc_port: { type: integer, description: "پورت gRPC سازگار PasarGuard (پیش‌فرض 62050)" }
                 cert_pem: { type: string, description: "گواهی سلف‌ساین نود برای pin (خالی = دریافت خودکار TOFU)" }
                 config: { type: object, description: "کانفیگ ثابت Xray (اختیاری) برای push" }
       responses:
@@ -179,6 +180,23 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Node" }
+  /api/v1/nodes/{id}:
+    get:
+      tags: [nodes]
+      summary: Node connection details (host, ports, certificate) for the operator
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200":
+          description: Node detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NodeDetail" }
+    delete:
+      tags: [nodes]
+      summary: Delete a node
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "204": { description: Deleted }
   /api/v1/nodes/{id}/health:
     get:
       tags: [nodes]
@@ -297,13 +315,6 @@ paths:
       parameters: [{ $ref: "#/components/parameters/IdParam" }]
       responses:
         "204": { description: Deleted }
-  /api/v1/nodes/{id}:
-    delete:
-      tags: [nodes]
-      summary: Delete a node
-      parameters: [{ $ref: "#/components/parameters/IdParam" }]
-      responses:
-        "204": { description: Deleted }
   /api/v1/nodes/{id}/config:
     get:
       tags: [nodes]
@@ -413,9 +424,26 @@ components:
         id: { type: string }
         name: { type: string }
         address: { type: string }
+        grpc_port: { type: integer, example: 62050 }
         status: { type: string, enum: [online, offline, unknown] }
         version: { type: string }
         capacity_score: { type: integer }
+        last_seen_at: { type: integer, format: int64 }
+        created_at: { type: integer, format: int64 }
+    NodeDetail:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        host: { type: string, example: "1.2.3.4" }
+        address: { type: string, example: "https://1.2.3.4:8090" }
+        service_port: { type: integer, example: 8090 }
+        grpc_address: { type: string, example: "1.2.3.4:62050" }
+        grpc_port: { type: integer, example: 62050 }
+        protocol: { type: string, example: "grpc" }
+        cert_pem: { type: string }
+        status: { type: string }
+        version: { type: string }
         last_seen_at: { type: integer, format: int64 }
         created_at: { type: integer, format: int64 }
     NodeHealth:

@@ -288,6 +288,7 @@ function nodesTable(nodes, withActions) {
       fmtDate(n.last_seen_at),
       withActions
         ? `<div class="row" style="gap:6px">
+            <button class="btn sm ghost" data-detail="${n.id}">جزئیات</button>
             <button class="btn sm ghost" data-health="${n.id}">سلامت</button>
             <button class="btn sm ghost" data-cfg="${n.id}">کانفیگ</button>
             <button class="btn sm danger" data-delnode="${n.id}">حذف</button>
@@ -316,6 +317,48 @@ async function viewNodes(view) {
   view.querySelectorAll("[data-cfg]").forEach((b) => {
     b.onclick = () => guard(() => nodeConfigModal(b.dataset.cfg));
   });
+  view.querySelectorAll("[data-detail]").forEach((b) => {
+    b.onclick = () => guard(() => nodeDetailModal(b.dataset.detail));
+  });
+}
+
+// nodeDetailModal shows a node's connection info (host, ports, gRPC address and
+// certificate) with copy buttons, plus a shortcut to the Xray config editor.
+async function nodeDetailModal(nodeID) {
+  const d = await api(`/api/v1/nodes/${nodeID}`);
+  const field = (label, value, btnId) =>
+    `<div class="field"><label>${esc(label)}</label>
+      <div class="row" style="gap:6px;align-items:stretch">
+        <input readonly value="${esc(value)}" style="flex:1" />
+        ${btnId ? `<button class="btn ghost" id="${btnId}">کپی</button>` : ""}
+      </div></div>`;
+  modal(
+    "جزئیات نود — " + esc(d.name),
+    `${field("IP / هاست", d.host, "cpHost")}
+     ${field("آدرس سرویس (کنترل، HTTPS)", d.address, "cpAddr")}
+     ${field("پورت سرویس (HTTP)", d.service_port)}
+     ${field("آدرس gRPC (برای پنل مشتری)", d.grpc_address, "cpGrpc")}
+     ${field("پورت gRPC", d.grpc_port)}
+     ${field("پروتکل", d.protocol)}
+     ${field("وضعیت", (STATUS_FA[d.status] || d.status) + (d.version ? " — " + d.version : ""))}
+     <div class="field"><label>گواهی نود (Certificate)</label>
+       <textarea id="dCert" rows="6" readonly spellcheck="false" style="font-family:ui-monospace,monospace;font-size:12px">${esc(d.cert_pem || "—")}</textarea></div>
+     <p class="muted" style="font-size:12px;margin:0 0 8px">این مقادیر را برای افزودن نود در پنل PasarGuard مشتری استفاده کن. کانفیگ Xray را با دکمه‌ی زیر ببین/ویرایش کن.</p>
+     <div class="actions">
+       <button class="btn primary" id="dCfg">کانفیگ Xray</button>
+       <button class="btn ghost" id="dCertCopy">کپی گواهی</button>
+       <button class="btn ghost" id="dClose">بستن</button>
+     </div>`,
+    (root) => {
+      const copy = (t) => { if (navigator.clipboard) navigator.clipboard.writeText(t); toast("کپی شد"); };
+      root.querySelector("#cpHost").onclick = () => copy(d.host);
+      root.querySelector("#cpAddr").onclick = () => copy(d.address);
+      root.querySelector("#cpGrpc").onclick = () => copy(d.grpc_address);
+      root.querySelector("#dCertCopy").onclick = () => copy(d.cert_pem || "");
+      root.querySelector("#dClose").onclick = closeModal;
+      root.querySelector("#dCfg").onclick = () => { closeModal(); guard(() => nodeConfigModal(nodeID)); };
+    }
+  );
 }
 
 // nodeConfigModal lets the operator edit and push a node's fixed Xray config.
@@ -363,11 +406,13 @@ function nodeModal() {
       { name: "name", label: "نام" },
       { name: "address", label: "آدرس", placeholder: "https://1.2.3.4:8090" },
       { name: "master_key", label: "کلید مستر", type: "password" },
+      { name: "grpc_port", label: "پورت gRPC (پیش‌فرض 62050)", type: "number", value: "62050" },
       { name: "cert_pem", label: "گواهی نود (PEM، اختیاری)", type: "textarea", hint: "خالی بگذارید تا پنل خودکار گواهی نود را دریافت و pin کند (TOFU)." },
       { name: "config", label: "کانفیگ ثابت Xray (JSON، اختیاری)", type: "textarea", hint: "در صورت ورود، روی نود اعمال و هسته راه‌اندازی می‌شود." },
     ],
     async (v) => {
       const body = { name: v.name, address: v.address, master_key: v.master_key };
+      if (v.grpc_port) body.grpc_port = parseInt(v.grpc_port, 10);
       if (v.cert_pem) body.cert_pem = v.cert_pem;
       if (v.config) {
         try { body.config = JSON.parse(v.config); } catch { throw new Error("کانفیگ JSON نامعتبر است"); }

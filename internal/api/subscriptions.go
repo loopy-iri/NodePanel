@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -14,10 +15,6 @@ import (
 	"github.com/pasarguard/panel/internal/domain"
 	"github.com/pasarguard/panel/internal/nodeclient"
 )
-
-// defaultGRPCPort is the node's PasarGuard-compatible gRPC port (the install
-// script's default). The customer's panel connects here.
-const defaultGRPCPort = "62050"
 
 type createSubscriptionRequest struct {
 	PlanID           string `json:"plan_id"`
@@ -106,22 +103,29 @@ func (a *API) createSubscription(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// grpcAddressFor derives the node's gRPC endpoint (host:62050) from its stored
-// control address (e.g. https://1.2.3.4:8090 -> 1.2.3.4:62050).
-func grpcAddressFor(address string) string {
-	host := address
-	if u, err := url.Parse(address); err == nil && u.Host != "" {
-		host = u.Hostname()
-	} else {
-		host = strings.TrimPrefix(strings.TrimPrefix(host, "https://"), "http://")
-		if i := strings.IndexByte(host, ':'); i >= 0 {
-			host = host[:i]
-		}
-		if i := strings.IndexByte(host, '/'); i >= 0 {
-			host = host[:i]
-		}
+// grpcAddressFor derives the node's gRPC endpoint from its stored control
+// address and configured gRPC port (e.g. https://1.2.3.4:8090 + 62050 ->
+// 1.2.3.4:62050).
+func grpcAddressFor(address string, grpcPort int) string {
+	if grpcPort <= 0 {
+		grpcPort = 62050
 	}
-	return host + ":" + defaultGRPCPort
+	return fmt.Sprintf("%s:%d", hostOf(address), grpcPort)
+}
+
+// hostOf extracts the bare host/IP from a node address.
+func hostOf(address string) string {
+	if u, err := url.Parse(address); err == nil && u.Host != "" {
+		return u.Hostname()
+	}
+	host := strings.TrimPrefix(strings.TrimPrefix(address, "https://"), "http://")
+	if i := strings.IndexByte(host, '/'); i >= 0 {
+		host = host[:i]
+	}
+	if i := strings.IndexByte(host, ':'); i >= 0 {
+		host = host[:i]
+	}
+	return host
 }
 
 type connectionInfoResponse struct {
@@ -154,7 +158,7 @@ func (a *API) subscriptionConnection(w http.ResponseWriter, r *http.Request) {
 	_ = sub
 	writeJSON(w, http.StatusOK, connectionInfoResponse{
 		NodeName:    node.Name,
-		GRPCAddress: grpcAddressFor(node.Address),
+		GRPCAddress: grpcAddressFor(node.Address, node.GRPCPort),
 		Protocol:    "grpc",
 		CertPEM:     node.CertPEM,
 		Inbounds:    inbounds,

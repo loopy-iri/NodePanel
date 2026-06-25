@@ -12,7 +12,10 @@ import (
 // ErrNotFound is returned when a row does not exist.
 var ErrNotFound = errors.New("not found")
 
-func (s *Store) CreateNode(name, address, masterKey, certPEM, configJSON string) (*domain.Node, error) {
+func (s *Store) CreateNode(name, address, masterKey, certPEM, configJSON string, grpcPort int) (*domain.Node, error) {
+	if grpcPort <= 0 {
+		grpcPort = 62050
+	}
 	n := &domain.Node{
 		ID:         uuid.NewString(),
 		Name:       name,
@@ -20,12 +23,13 @@ func (s *Store) CreateNode(name, address, masterKey, certPEM, configJSON string)
 		MasterKey:  masterKey,
 		CertPEM:    certPEM,
 		ConfigJSON: configJSON,
+		GRPCPort:   grpcPort,
 		Status:     "unknown",
 		CreatedAt:  time.Now().Unix(),
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO nodes (id, name, address, master_key, cert_pem, config_json, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		n.ID, n.Name, n.Address, n.MasterKey, n.CertPEM, n.ConfigJSON, n.Status, n.CreatedAt,
+		`INSERT INTO nodes (id, name, address, master_key, cert_pem, config_json, grpc_port, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		n.ID, n.Name, n.Address, n.MasterKey, n.CertPEM, n.ConfigJSON, n.GRPCPort, n.Status, n.CreatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -37,7 +41,7 @@ func scanNode(row interface{ Scan(...any) error }) (*domain.Node, error) {
 	var n domain.Node
 	var certPEM, configJSON, version sql.NullString
 	var lastSeen sql.NullInt64
-	err := row.Scan(&n.ID, &n.Name, &n.Address, &n.MasterKey, &certPEM, &configJSON, &n.Status, &version, &n.CapacityScore, &lastSeen, &n.CreatedAt)
+	err := row.Scan(&n.ID, &n.Name, &n.Address, &n.MasterKey, &certPEM, &configJSON, &n.GRPCPort, &n.Status, &version, &n.CapacityScore, &lastSeen, &n.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +52,7 @@ func scanNode(row interface{ Scan(...any) error }) (*domain.Node, error) {
 	return &n, nil
 }
 
-const nodeColumns = `id, name, address, master_key, cert_pem, config_json, status, version, capacity_score, last_seen_at, created_at`
+const nodeColumns = `id, name, address, master_key, cert_pem, config_json, grpc_port, status, version, capacity_score, last_seen_at, created_at`
 
 func (s *Store) GetNode(id string) (*domain.Node, error) {
 	row := s.db.QueryRow(`SELECT `+nodeColumns+` FROM nodes WHERE id = ?`, id)

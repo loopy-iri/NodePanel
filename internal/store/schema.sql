@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     master_key     TEXT NOT NULL,                     -- credential the panel uses to control the node
     cert_pem       TEXT,                              -- node's pinned self-signed certificate (PEM)
     config_json    TEXT,                              -- last fixed Xray config pushed to the node
+    grpc_port      INTEGER NOT NULL DEFAULT 62050,    -- PasarGuard-compat gRPC port the customer connects to
     status         TEXT NOT NULL DEFAULT 'unknown',   -- online|offline|unknown
     version        TEXT,
     capacity_score INTEGER NOT NULL DEFAULT 0,
