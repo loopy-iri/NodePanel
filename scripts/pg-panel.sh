@@ -63,6 +63,17 @@ need() { command -v "$1" >/dev/null 2>&1 || { colorized_echo yellow "Installing 
 gen_token() { openssl rand -hex 32 2>/dev/null || cat /proc/sys/kernel/random/uuid; }
 public_ip() { curl -s -4 --fail --max-time 5 ifconfig.io 2>/dev/null || echo "127.0.0.1"; }
 
+# warn_if_port_in_use prints a clear warning when a TCP port is already bound
+# (e.g. by a Docker container), which would otherwise cause a silent crash-loop.
+warn_if_port_in_use() {
+    local p="$1"
+    command -v ss >/dev/null 2>&1 || return 0
+    if [ -n "$(ss -ltnH "sport = :$p" 2>/dev/null)" ]; then
+        colorized_echo yellow "⚠ پورت $p از قبل در حال استفاده است (شاید یک کانتینر Docker یا سرویس دیگر)."
+        colorized_echo yellow "  اگر سرویس بالا نیامد، با --port <پورت-آزاد> دوباره نصب کن یا PANEL_HTTP_ADDR را در $ENV_FILE عوض کن."
+    fi
+}
+
 detect_arch() {
     case "$(uname -m)" in
     x86_64|amd64)  ARCH_SUFFIX="amd64" ;;
@@ -186,6 +197,7 @@ install_command() {
     write_env "$token" "$port"
     write_service
     install_panel_script || true
+    warn_if_port_in_use "$port"
     systemctl enable --now "$APP_NAME"
 
     local ip; ip="$(public_ip)"
