@@ -11,11 +11,13 @@
 پنل **منطق پول ندارد** (کیف‌پول/قیمت/پرداخت در ربات فروش است). فقط بایت/زمان/وضعیت را مدیریت و مصرف/overage را از طریق API + webhook expose می‌کند.
 
 ## ویژگی‌ها
-- مدیریت **چند نود** با master key + TLS (pin گواهی نود یا TOFU خودکار).
+- مدیریت **چند نود** با master key + TLS (pin گواهی نود یا TOFU خودکار)؛ **پورت gRPC** قابل تنظیم در ثبت نود.
 - مشتری/پلن/اشتراک: ساخت، provision روی نود (ساخت tenant + کلید یک‌بار)، suspend/resume/topup/renew/delete.
+- **جزئیات نود**: نمایش IP/هاست، پورت سرویس و gRPC، پروتکل و **گواهی** با دکمه‌ی کپی (`GET /api/v1/nodes/{id}`).
+- **اطلاعات اتصال مشتری**: آدرس gRPC + گواهی + inboundهای واقعی نود برای تحویل به مشتری (`GET /api/v1/subscriptions/{id}/connection`، `GET /api/v1/nodes/{id}/inbounds`).
 - **Usage collector**: pull مصرف تجمعی از نودها + تجمیع per-customer + بازتاب وضعیت.
 - **Webhook با امضای HMAC**: `usage.threshold`, `usage.over_quota`, `subscription.suspended/resumed/expired`.
-- **پنل وب**: داشبورد/نودها/مشتری‌ها/پلن‌ها/اشتراک‌ها/وب‌هوک‌ها، ریسپانسیو، RTL، چندتم (light/dark/midnight/emerald)، ویرایشگر کانفیگ هسته‌ی نود.
+- **پنل وب**: داشبورد/نودها/مشتری‌ها/پلن‌ها/اشتراک‌ها/وب‌هوک‌ها، ریسپانسیو، RTL، چندتم (light/dark/midnight/emerald)، ویرایشگر کانفیگ هسته‌ی نود (no-cache تا بعد از آپدیت UI تازه شود).
 - **OpenAPI 3** روی `/openapi.yaml` و Swagger UI روی `/docs`.
 
 ## اجرا
