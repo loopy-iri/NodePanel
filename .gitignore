@@ -1,0 +1,8 @@
+# SQLite database files
+*.db
+*.db-wal
+*.db-shm
+
+# build output
+/panel
+/panel.exe

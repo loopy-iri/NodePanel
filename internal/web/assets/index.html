@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PasarGuard Panel</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700;800&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><span class="dot">PG</span> PasarGuard</div>
+      <nav id="nav"></nav>
+      <div class="spacer"></div>
+      <button class="nav-item" id="docsBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16M4 12h16M4 19h10"/></svg>
+        مستندات API
+      </button>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <button class="btn ghost hamburger" id="hamburger" aria-label="menu">☰</button>
+        <h1 id="pageTitle">داشبورد</h1>
+        <div class="spacer"></div>
+        <div class="theme-dots" id="themeDots"></div>
+        <button class="btn sm ghost" id="tokenBtn">توکن</button>
+      </header>
+      <main class="content" id="view"></main>
+    </div>
+  </div>
+
+  <div id="modalRoot"></div>
+  <div class="toast-wrap" id="toastWrap"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

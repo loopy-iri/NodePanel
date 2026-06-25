@@ -1,0 +1,246 @@
+// Package nodeclient is the panel's HTTP client for a node agent's master-scope
+// admin API. It authenticates with the node's master key (X-API-Key) and is used
+// to provision tenants, push config, control lifecycle and pull usage.
+package nodeclient
+
+import (
+	"bytes"
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
+	"encoding/pem"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+)
+
+// Client talks to a single node agent.
+type Client struct {
+	baseURL   string
+	masterKey string
+	http      *http.Client
+}
+
+// New returns a client for the node at baseURL (e.g. https://1.2.3.4:8090).
+//
+// TLS behaviour:
+//   - certPEM set   -> the node's certificate is pinned (only that exact cert is
+//     accepted), independent of CA chains or hostnames.
+//   - certPEM empty -> TLS verification is skipped (the node uses a self-signed
+//     cert). Pinning is therefore optional; for best security provide the cert
+//     (the panel auto-fetches it on registration when possible).
+func New(baseURL, masterKey, certPEM string) *Client {
+	httpClient := &http.Client{Timeout: 15 * time.Second}
+	httpClient.Transport = &http.Transport{TLSClientConfig: tlsConfigFor(certPEM)}
+	return &Client{
+		baseURL:   strings.TrimRight(baseURL, "/"),
+		masterKey: masterKey,
+		http:      httpClient,
+	}
+}
+
+// tlsConfigFor builds a TLS config that pins the exact certificate when one is
+// provided, or skips verification (self-signed friendly) when it is empty.
+func tlsConfigFor(certPEM string) *tls.Config {
+	certPEM = strings.TrimSpace(certPEM)
+	if certPEM == "" {
+		return &tls.Config{InsecureSkipVerify: true} //nolint:gosec // optional pinning; self-signed nodes
+	}
+	block, _ := pem.Decode([]byte(certPEM))
+	if block == nil {
+		return &tls.Config{InsecureSkipVerify: true} //nolint:gosec // malformed pin -> fall back
+	}
+	pinned := block.Bytes
+	return &tls.Config{
+		InsecureSkipVerify: true, //nolint:gosec // exact-certificate pin below
+		VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+			for _, raw := range rawCerts {
+				if bytes.Equal(raw, pinned) {
+					return nil
+				}
+			}
+			return errors.New("node certificate does not match pinned certificate")
+		},
+	}
+}
+
+// FetchCert connects to an https node and returns its leaf certificate as PEM
+// (trust-on-first-use). Returns an empty string with no error for non-https
+// addresses (nothing to pin).
+func FetchCert(address string) (string, error) {
+	u, err := url.Parse(address)
+	if err != nil {
+		return "", err
+	}
+	if u.Scheme != "" && u.Scheme != "https" {
+		return "", nil
+	}
+	host := u.Host
+	if host == "" {
+		host = address
+	}
+	if !strings.Contains(host, ":") {
+		host += ":443"
+	}
+	conn, err := tls.DialWithDialer(
+		&net.Dialer{Timeout: 10 * time.Second}, "tcp", host,
+		&tls.Config{InsecureSkipVerify: true}, //nolint:gosec // TOFU: we read and pin the cert
+	)
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+
+	certs := conn.ConnectionState().PeerCertificates
+	if len(certs) == 0 {
+		return "", errors.New("node presented no certificate")
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certs[0].Raw})), nil
+}
+
+// Health is the node's health response.
+type Health struct {
+	Status      string `json:"status"`
+	CoreStarted bool   `json:"core_started"`
+	CoreVersion string `json:"core_version"`
+}
+
+// TenantView mirrors the node's tenant representation.
+type TenantView struct {
+	ID               string `json:"id"`
+	Status           string `json:"status"`
+	Reason           string `json:"reason,omitempty"`
+	PeriodID         uint64 `json:"period_id"`
+	QuotaBytes       int64  `json:"quota_bytes"`
+	UsedBytes        int64  `json:"used_bytes"`
+	CreditLimitBytes int64  `json:"credit_limit_bytes"`
+	ExpireAt         int64  `json:"expire_at"`
+}
+
+// UsageView mirrors the node's usage representation (absolute cumulative).
+type UsageView struct {
+	ID           string `json:"id"`
+	Status       string `json:"status"`
+	PeriodID     uint64 `json:"period_id"`
+	QuotaBytes   int64  `json:"quota_bytes"`
+	UsedBytes    int64  `json:"used_bytes"`
+	OverageBytes int64  `json:"overage_bytes"`
+	RemainBytes  int64  `json:"remaining_bytes"`
+	CreditLimit  int64  `json:"credit_limit_bytes"`
+	ExpireAt     int64  `json:"expire_at"`
+}
+
+// CreateTenantRequest provisions a tenant on the node.
+type CreateTenantRequest struct {
+	ID               string `json:"id"`
+	APIKey           string `json:"api_key"`
+	QuotaBytes       int64  `json:"quota_bytes"`
+	CreditLimitBytes int64  `json:"credit_limit_bytes"`
+	ExpireAt         int64  `json:"expire_at"`
+	PeriodID         uint64 `json:"period_id,omitempty"`
+}
+
+// SetQuotaRequest updates a tenant's quota/credit/expiry.
+type SetQuotaRequest struct {
+	QuotaBytes       int64 `json:"quota_bytes"`
+	CreditLimitBytes int64 `json:"credit_limit_bytes"`
+	ExpireAt         int64 `json:"expire_at"`
+}
+
+func (c *Client) Health(ctx context.Context) (*Health, error) {
+	var h Health
+	if err := c.do(ctx, http.MethodGet, "/health", nil, &h); err != nil {
+		return nil, err
+	}
+	return &h, nil
+}
+
+func (c *Client) ApplyConfig(ctx context.Context, configJSON string) error {
+	return c.do(ctx, http.MethodPost, "/admin/config", strings.NewReader(configJSON), nil)
+}
+
+func (c *Client) CreateTenant(ctx context.Context, req CreateTenantRequest) (*TenantView, error) {
+	var tv TenantView
+	if err := c.doJSON(ctx, http.MethodPost, "/admin/tenants", req, &tv); err != nil {
+		return nil, err
+	}
+	return &tv, nil
+}
+
+func (c *Client) SetQuota(ctx context.Context, tenantID string, req SetQuotaRequest) (*TenantView, error) {
+	var tv TenantView
+	if err := c.doJSON(ctx, http.MethodPatch, "/admin/tenants/"+tenantID+"/quota", req, &tv); err != nil {
+		return nil, err
+	}
+	return &tv, nil
+}
+
+func (c *Client) Suspend(ctx context.Context, tenantID string) error {
+	return c.do(ctx, http.MethodPost, "/admin/tenants/"+tenantID+"/suspend", nil, nil)
+}
+
+func (c *Client) Resume(ctx context.Context, tenantID string) error {
+	return c.do(ctx, http.MethodPost, "/admin/tenants/"+tenantID+"/resume", nil, nil)
+}
+
+// ResetPeriod starts a new period on the node (usage zeroed, reactivated).
+func (c *Client) ResetPeriod(ctx context.Context, tenantID string) error {
+	return c.do(ctx, http.MethodPost, "/admin/tenants/"+tenantID+"/reset", nil, nil)
+}
+
+func (c *Client) Delete(ctx context.Context, tenantID string) error {
+	return c.do(ctx, http.MethodDelete, "/admin/tenants/"+tenantID, nil, nil)
+}
+
+func (c *Client) TenantUsage(ctx context.Context, tenantID string) (*UsageView, error) {
+	var uv UsageView
+	if err := c.do(ctx, http.MethodGet, "/admin/tenants/"+tenantID+"/usage", nil, &uv); err != nil {
+		return nil, err
+	}
+	return &uv, nil
+}
+
+// --- internals ---
+
+func (c *Client) doJSON(ctx context.Context, method, path string, body, out any) error {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, method, path, bytes.NewReader(data), out)
+}
+
+func (c *Client) do(ctx context.Context, method, path string, body io.Reader, out any) error {
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-API-Key", c.masterKey)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("node request %s %s: %w", method, path, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("node %s %s: status %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(msg)))
+	}
+
+	if out != nil && resp.StatusCode != http.StatusNoContent {
+		if err := json.NewDecoder(resp.Body).Decode(out); err != nil && err != io.EOF {
+			return fmt.Errorf("decode node response: %w", err)
+		}
+	}
+	return nil
+}

@@ -1,0 +1,434 @@
+openapi: 3.0.3
+info:
+  title: PasarGuard Panel API
+  version: "1.0.0"
+  description: >
+    API پنل اصلی برای مدیریت چند نود، مشتری، پلن، اشتراک و سهمیه.
+    این API سطح یکپارچه‌سازی برای ربات فروش است. پنل منطق پول/کیف‌پول ندارد؛
+    فقط بایت/زمان/وضعیت را مدیریت و مصرف/overage را expose می‌کند.
+servers:
+  - url: /
+security:
+  - bearerAuth: []
+tags:
+  - name: customers
+  - name: plans
+  - name: nodes
+  - name: subscriptions
+  - name: usage
+  - name: webhooks
+  - name: system
+paths:
+  /health:
+    get:
+      tags: [system]
+      summary: Health check
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+  /api/v1/customers:
+    get:
+      tags: [customers]
+      summary: List customers
+      responses:
+        "200":
+          description: List
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Customer" }
+    post:
+      tags: [customers]
+      summary: Create a customer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                external_ref: { type: string, description: "شناسه‌ی مشتری در ربات فروش" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Customer" }
+  /api/v1/customers/{id}/usage:
+    get:
+      tags: [usage]
+      summary: Aggregated usage for a customer
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200":
+          description: Usage
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CustomerUsage" }
+  /api/v1/customers/{id}/subscriptions:
+    get:
+      tags: [subscriptions]
+      summary: List a customer's subscriptions
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200":
+          description: List
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Subscription" }
+    post:
+      tags: [subscriptions]
+      summary: Provision a subscription (creates a tenant on a node)
+      description: >
+        یک tenant روی نود انتخابی می‌سازد و کلید API مشتری را **فقط یک‌بار** برمی‌گرداند.
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan_id, node_id]
+              properties:
+                plan_id: { type: string }
+                node_id: { type: string }
+                credit_limit_bytes: { type: integer, format: int64 }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SubscriptionResponse" }
+        "502": { $ref: "#/components/responses/NodeError" }
+  /api/v1/plans:
+    get:
+      tags: [plans]
+      summary: List plans
+      responses:
+        "200":
+          description: List
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Plan" }
+    post:
+      tags: [plans]
+      summary: Create a plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, quota_bytes, duration_days]
+              properties:
+                name: { type: string }
+                quota_bytes: { type: integer, format: int64 }
+                duration_days: { type: integer }
+                max_users: { type: integer }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+  /api/v1/nodes:
+    get:
+      tags: [nodes]
+      summary: List nodes
+      responses:
+        "200":
+          description: List
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Node" }
+    post:
+      tags: [nodes]
+      summary: Register a node
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, address, master_key]
+              properties:
+                name: { type: string }
+                address: { type: string, example: "https://1.2.3.4:8090" }
+                master_key: { type: string }
+                cert_pem: { type: string, description: "گواهی سلف‌ساین نود برای pin (خالی = دریافت خودکار TOFU)" }
+                config: { type: object, description: "کانفیگ ثابت Xray (اختیاری) برای push" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Node" }
+  /api/v1/nodes/{id}/health:
+    get:
+      tags: [nodes]
+      summary: Probe a node's health
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200":
+          description: Health
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NodeHealth" }
+        "502": { $ref: "#/components/responses/NodeError" }
+  /api/v1/subscriptions/{id}/suspend:
+    post:
+      tags: [subscriptions]
+      summary: Suspend a subscription (forwarded to the node)
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Subscription" }
+  /api/v1/subscriptions/{id}/resume:
+    post:
+      tags: [subscriptions]
+      summary: Resume a subscription
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Subscription" }
+  /api/v1/subscriptions/{id}/topup-quota:
+    post:
+      tags: [subscriptions]
+      summary: Add quota bytes (and reactivate)
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [add_bytes]
+              properties:
+                add_bytes: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Subscription" }
+  /api/v1/webhooks:
+    get:
+      tags: [webhooks]
+      summary: List webhook endpoints
+      responses:
+        "200":
+          description: List
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Webhook" }
+    post:
+      tags: [webhooks]
+      summary: Register a webhook endpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, secret]
+              properties:
+                url: { type: string }
+                secret: { type: string, description: "برای امضای HMAC-SHA256" }
+                events: { type: string, description: "کاما-جدا یا *", example: "*" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Webhook" }
+  /api/v1/customers/{id}:
+    delete:
+      tags: [customers]
+      summary: Delete a customer (deprovisions tenants, cascades subscriptions)
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "204": { description: Deleted }
+  /api/v1/customers/{id}/enable:
+    post:
+      tags: [customers]
+      summary: Enable a customer (resumes its subscriptions)
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200":
+          description: Updated
+          content: { application/json: { schema: { $ref: "#/components/schemas/Customer" } } }
+  /api/v1/customers/{id}/disable:
+    post:
+      tags: [customers]
+      summary: Disable a customer (suspends its subscriptions)
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200":
+          description: Updated
+          content: { application/json: { schema: { $ref: "#/components/schemas/Customer" } } }
+  /api/v1/plans/{id}:
+    delete:
+      tags: [plans]
+      summary: Delete a plan
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "204": { description: Deleted }
+  /api/v1/nodes/{id}:
+    delete:
+      tags: [nodes]
+      summary: Delete a node
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "204": { description: Deleted }
+  /api/v1/nodes/{id}/config:
+    get:
+      tags: [nodes]
+      summary: Get the node's last pushed fixed Xray config
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200":
+          description: Config JSON (object)
+          content: { application/json: { schema: { type: object } } }
+    put:
+      tags: [nodes]
+      summary: Push a fixed Xray config to the node (applies and restarts core)
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object } } }
+      responses:
+        "200": { description: Applied }
+        "502": { $ref: "#/components/responses/NodeError" }
+  /api/v1/subscriptions/{id}:
+    delete:
+      tags: [subscriptions]
+      summary: Delete a subscription (deprovisions the tenant from its node)
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "204": { description: Deleted }
+  /api/v1/subscriptions/{id}/renew:
+    post:
+      tags: [subscriptions]
+      summary: Renew a subscription (reset usage, extend expiry, reactivate)
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200":
+          description: Updated
+          content: { application/json: { schema: { $ref: "#/components/schemas/Subscription" } } }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    IdParam:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+  responses:
+    NodeError:
+      description: خطا در ارتباط با نود
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+    Customer:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        status: { type: string }
+        external_ref: { type: string }
+        created_at: { type: integer, format: int64 }
+    Plan:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        quota_bytes: { type: integer, format: int64 }
+        duration_days: { type: integer }
+        max_users: { type: integer }
+        created_at: { type: integer, format: int64 }
+    Node:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        address: { type: string }
+        status: { type: string, enum: [online, offline, unknown] }
+        version: { type: string }
+        capacity_score: { type: integer }
+        last_seen_at: { type: integer, format: int64 }
+        created_at: { type: integer, format: int64 }
+    NodeHealth:
+      type: object
+      properties:
+        status: { type: string }
+        core_started: { type: boolean }
+        core_version: { type: string }
+    Subscription:
+      type: object
+      properties:
+        id: { type: string }
+        customer_id: { type: string }
+        plan_id: { type: string }
+        node_id: { type: string }
+        node_tenant_id: { type: string }
+        status: { type: string, enum: [active, suspended, expired] }
+        period_id: { type: integer }
+        start_at: { type: integer, format: int64 }
+        end_at: { type: integer, format: int64 }
+        quota_bytes: { type: integer, format: int64 }
+        used_bytes: { type: integer, format: int64 }
+        credit_limit_bytes: { type: integer, format: int64 }
+        notified_threshold: { type: integer }
+        created_at: { type: integer, format: int64 }
+    SubscriptionResponse:
+      type: object
+      properties:
+        subscription: { $ref: "#/components/schemas/Subscription" }
+        api_key: { type: string, description: "کلید مشتری — فقط همین یک‌بار نمایش داده می‌شود" }
+        node_address: { type: string }
+    CustomerUsage:
+      type: object
+      properties:
+        customer_id: { type: string }
+        quota_bytes: { type: integer, format: int64 }
+        used_bytes: { type: integer, format: int64 }
+        overage_bytes: { type: integer, format: int64 }
+    Webhook:
+      type: object
+      properties:
+        id: { type: string }
+        url: { type: string }
+        events: { type: string }
+        status: { type: string }
