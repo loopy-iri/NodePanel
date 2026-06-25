@@ -45,6 +45,7 @@ type Subscription struct {
 	PlanID            string `json:"plan_id"`
 	NodeID            string `json:"node_id"`
 	NodeTenantID      string `json:"node_tenant_id"`
+	SubToken          string `json:"sub_token,omitempty"`
 	Status            string `json:"status"`
 	PeriodID          uint64 `json:"period_id"`
 	StartAt           int64  `json:"start_at"`

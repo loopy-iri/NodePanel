@@ -59,13 +59,39 @@ func Open(path string) (*Store, error) {
 func migrate(db *sql.DB) error {
 	addColumns := []string{
 		`ALTER TABLE nodes ADD COLUMN grpc_port INTEGER NOT NULL DEFAULT 62050`,
+		`ALTER TABLE subscriptions ADD COLUMN sub_token TEXT`,
 	}
 	for _, stmt := range addColumns {
 		if _, err := db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("statement %q: %w", firstLine(stmt), err)
 		}
 	}
+	// Backfill subscription tokens for rows created before this column existed.
+	rows, err := db.Query(`SELECT id FROM subscriptions WHERE sub_token IS NULL OR sub_token = ''`)
+	if err != nil {
+		return err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	_ = rows.Close()
+	for _, id := range ids {
+		if _, err := db.Exec(`UPDATE subscriptions SET sub_token = ? WHERE id = ?`, newSubToken(), id); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// newSubToken returns an unguessable token (32 hex chars) for a public sub page.
+func newSubToken() string {
+	return strings.ReplaceAll(uuid.NewString(), "-", "")
 }
 
 // applySchema executes each statement in schema.sql individually so the code

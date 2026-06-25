@@ -26,6 +26,7 @@ type subscriptionResponse struct {
 	Subscription domain.Subscription `json:"subscription"`
 	APIKey       string              `json:"api_key"` // shown only once
 	NodeAddress  string              `json:"node_address"`
+	SubToken     string              `json:"sub_token"` // public subscription page token
 }
 
 // createSubscription provisions a tenant on a node for a customer+plan and
@@ -100,6 +101,7 @@ func (a *API) createSubscription(w http.ResponseWriter, r *http.Request) {
 		Subscription: *sub,
 		APIKey:       rawKey,
 		NodeAddress:  node.Address,
+		SubToken:     sub.SubToken,
 	})
 }
 
@@ -134,6 +136,7 @@ type connectionInfoResponse struct {
 	Protocol    string          `json:"protocol"`
 	CertPEM     string          `json:"cert_pem"`
 	Inbounds    json.RawMessage `json:"inbounds"`
+	SubToken    string          `json:"sub_token"`
 	Note        string          `json:"note"`
 }
 
@@ -162,6 +165,7 @@ func (a *API) subscriptionConnection(w http.ResponseWriter, r *http.Request) {
 		Protocol:    "grpc",
 		CertPEM:     node.CertPEM,
 		Inbounds:    inbounds,
+		SubToken:    sub.SubToken,
 		Note:        "Add this node in your PasarGuard panel with the gRPC address, protocol grpc, the certificate, and your customer API key. Replicate the inbound(s) exactly (port/protocol/network/TLS/SNI) so user links work.",
 	})
 }

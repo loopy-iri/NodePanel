@@ -33,6 +33,26 @@ paths:
                 type: object
                 properties:
                   status: { type: string, example: ok }
+  /sub/{token}:
+    get:
+      tags: [system]
+      summary: Public subscription page (HTML) for the customer — config + quota/expiry
+      security: []
+      parameters: [{ name: token, in: path, required: true, schema: { type: string } }]
+      responses:
+        "200": { description: HTML page }
+        "404": { description: Not found }
+  /sub/{token}/info:
+    get:
+      tags: [system]
+      summary: Public subscription info (JSON) — config + quota/expiry
+      security: []
+      parameters: [{ name: token, in: path, required: true, schema: { type: string } }]
+      responses:
+        "200":
+          description: Info
+          content: { application/json: { schema: { type: object } } }
+        "404": { description: Not found }
   /api/v1/customers:
     get:
       tags: [customers]
@@ -475,6 +495,7 @@ components:
         subscription: { $ref: "#/components/schemas/Subscription" }
         api_key: { type: string, description: "کلید مشتری — فقط همین یک‌بار نمایش داده می‌شود" }
         node_address: { type: string }
+        sub_token: { type: string, description: "توکن صفحه‌ی عمومی اشتراک (/sub/{token})" }
     CustomerUsage:
       type: object
       properties:
@@ -490,6 +511,7 @@ components:
         protocol: { type: string, example: "grpc" }
         cert_pem: { type: string, description: "گواهی نود برای pin در پنل مشتری" }
         inbounds: { type: object, description: "بخش inbounds نود برای کپی در پنل مشتری" }
+        sub_token: { type: string, description: "توکن صفحه‌ی عمومی اشتراک (/sub/{token})" }
         note: { type: string }
     Webhook:
       type: object

@@ -79,6 +79,11 @@ func (a *API) Router() http.Handler {
 		r.Post("/webhooks", a.createWebhook)
 	})
 
+	// Public subscription page (token-gated, no bearer auth): the customer opens
+	// this to get the node config to paste and to see quota/expiry.
+	r.Get("/sub/{token}", a.subPage)
+	r.Get("/sub/{token}/info", a.subInfo)
+
 	// API docs (Swagger UI) and OpenAPI spec are public.
 	r.Get("/docs", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/docs.html", http.StatusFound)

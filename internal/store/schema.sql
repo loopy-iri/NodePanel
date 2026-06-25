@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     plan_id            TEXT REFERENCES plans(id),
     node_id            TEXT REFERENCES nodes(id),
     node_tenant_id     TEXT,                            -- tenant id on the node
+    sub_token          TEXT,                            -- unguessable token for the public subscription page
     status             TEXT NOT NULL DEFAULT 'active', -- active|suspended|expired
     period_id          INTEGER NOT NULL DEFAULT 1,
     start_at           INTEGER NOT NULL,

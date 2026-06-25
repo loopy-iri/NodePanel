@@ -614,18 +614,24 @@ async function subscriptionModal(customers) {
       });
       toast("اشتراک provision شد");
       // Defer so the key modal opens after formModal closes its own modal.
-      setTimeout(() => showApiKey(res.api_key, res.node_address), 60);
+      setTimeout(() => showApiKey(res.api_key, res.node_address, res.sub_token), 60);
     },
     "ساخت و provision"
   );
 }
-function showApiKey(key, nodeAddr) {
+function showApiKey(key, nodeAddr, subToken) {
+  const subLink = subToken ? location.origin + "/sub/" + subToken : "";
   modal(
     "کلید مشتری ساخته شد",
     `<p class="muted" style="font-size:13px">این کلید فقط همین یک‌بار نمایش داده می‌شود؛ آن را ذخیره و به مشتری بدهید.</p>
      <div class="field"><label>API Key</label><input id="akv" readonly value="${esc(key)}" /></div>
      <div class="field"><label>آدرس نود</label><input readonly value="${esc(nodeAddr)}" /></div>
-     <div class="actions"><button class="btn primary" id="akCopy">کپی کلید</button><button class="btn ghost" id="akClose">بستن</button></div>`,
+     ${subLink ? `<div class="field"><label>لینک اشتراک مشتری (کانفیگ + وضعیت حجم/انقضا)</label><input id="aksub" readonly value="${esc(subLink)}" /></div>` : ""}
+     <div class="actions">
+       <button class="btn primary" id="akCopy">کپی کلید</button>
+       ${subLink ? `<button class="btn ghost" id="akSubCopy">کپی لینک</button><button class="btn ghost" id="akSubOpen">باز کردن</button>` : ""}
+       <button class="btn ghost" id="akClose">بستن</button>
+     </div>`,
     (root) => {
       root.querySelector("#akCopy").onclick = () => {
         const inp = root.querySelector("#akv");
@@ -633,6 +639,10 @@ function showApiKey(key, nodeAddr) {
         if (navigator.clipboard) navigator.clipboard.writeText(key);
         toast("کپی شد");
       };
+      if (subLink) {
+        root.querySelector("#akSubCopy").onclick = () => { if (navigator.clipboard) navigator.clipboard.writeText(subLink); toast("کپی شد"); };
+        root.querySelector("#akSubOpen").onclick = () => window.open(subLink, "_blank");
+      }
       root.querySelector("#akClose").onclick = closeModal;
     }
   );
@@ -650,6 +660,8 @@ async function connectionModal(subID) {
   modal(
     "اطلاعات اتصال مشتری",
     `<p class="muted" style="font-size:12.5px;margin:0 0 10px">این مقادیر را به مشتری بدهید تا نود را در پنل PasarGuard خودش اضافه کند. کلید مشتری فقط هنگام ساخت اشتراک نمایش داده می‌شود.</p>
+     ${info.sub_token ? `<div class="field"><label>🔗 لینک اشتراک مشتری (کانفیگ + وضعیت حجم/انقضا)</label>
+       <div class="row" style="gap:6px;align-items:stretch"><input id="connSub" readonly value="${esc(location.origin + "/sub/" + info.sub_token)}" style="flex:1" /><button class="btn ghost" id="connSubOpen">باز</button></div></div>` : ""}
      <div class="field"><label>آدرس gRPC</label><input id="connAddr" readonly value="${esc(info.grpc_address)}" /></div>
      <div class="field"><label>پروتکل</label><input readonly value="${esc(info.protocol)}" /></div>
      <div class="field"><label>گواهی نود (Certificate)</label><textarea id="connCert" rows="5" readonly spellcheck="false" style="font-family:ui-monospace,monospace;font-size:12px">${esc(info.cert_pem || "—")}</textarea></div>
@@ -659,6 +671,7 @@ async function connectionModal(subID) {
        <button class="btn primary" id="connCopyAddr">کپی آدرس</button>
        <button class="btn ghost" id="connCopyCert">کپی گواهی</button>
        <button class="btn ghost" id="connCopyIn">کپی inbounds</button>
+       ${info.sub_token ? `<button class="btn ghost" id="connCopySub">کپی لینک</button>` : ""}
        <button class="btn ghost" id="connClose">بستن</button>
      </div>`,
     (root) => {
@@ -666,6 +679,11 @@ async function connectionModal(subID) {
       root.querySelector("#connCopyAddr").onclick = () => copy(info.grpc_address);
       root.querySelector("#connCopyCert").onclick = () => copy(info.cert_pem || "");
       root.querySelector("#connCopyIn").onclick = () => copy(inboundsPretty);
+      if (info.sub_token) {
+        const subLink = location.origin + "/sub/" + info.sub_token;
+        root.querySelector("#connCopySub").onclick = () => copy(subLink);
+        root.querySelector("#connSubOpen").onclick = () => window.open(subLink, "_blank");
+      }
       root.querySelector("#connClose").onclick = closeModal;
     }
   );

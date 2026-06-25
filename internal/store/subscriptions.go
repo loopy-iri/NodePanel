@@ -10,7 +10,7 @@ import (
 )
 
 const subColumns = `id, customer_id, plan_id, node_id, node_tenant_id, status, period_id,
-	start_at, end_at, quota_bytes, used_bytes, credit_limit_bytes, notified_threshold, created_at`
+	start_at, end_at, quota_bytes, used_bytes, credit_limit_bytes, notified_threshold, created_at, sub_token`
 
 // CreateSubscription persists a new subscription row.
 func (s *Store) CreateSubscription(sub *domain.Subscription) error {
@@ -26,21 +26,24 @@ func (s *Store) CreateSubscription(sub *domain.Subscription) error {
 	if sub.Status == "" {
 		sub.Status = "active"
 	}
+	if sub.SubToken == "" {
+		sub.SubToken = newSubToken()
+	}
 	_, err := s.db.Exec(
 		`INSERT INTO subscriptions (`+subColumns+`)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sub.ID, sub.CustomerID, sub.PlanID, sub.NodeID, sub.NodeTenantID, sub.Status, sub.PeriodID,
-		sub.StartAt, sub.EndAt, sub.QuotaBytes, sub.UsedBytes, sub.CreditLimitBytes, sub.NotifiedThreshold, sub.CreatedAt,
+		sub.StartAt, sub.EndAt, sub.QuotaBytes, sub.UsedBytes, sub.CreditLimitBytes, sub.NotifiedThreshold, sub.CreatedAt, sub.SubToken,
 	)
 	return err
 }
 
 func scanSubscription(row interface{ Scan(...any) error }) (*domain.Subscription, error) {
 	var sub domain.Subscription
-	var planID, nodeID, nodeTenantID sql.NullString
+	var planID, nodeID, nodeTenantID, subToken sql.NullString
 	err := row.Scan(
 		&sub.ID, &sub.CustomerID, &planID, &nodeID, &nodeTenantID, &sub.Status, &sub.PeriodID,
-		&sub.StartAt, &sub.EndAt, &sub.QuotaBytes, &sub.UsedBytes, &sub.CreditLimitBytes, &sub.NotifiedThreshold, &sub.CreatedAt,
+		&sub.StartAt, &sub.EndAt, &sub.QuotaBytes, &sub.UsedBytes, &sub.CreditLimitBytes, &sub.NotifiedThreshold, &sub.CreatedAt, &subToken,
 	)
 	if err != nil {
 		return nil, err
@@ -48,11 +51,22 @@ func scanSubscription(row interface{ Scan(...any) error }) (*domain.Subscription
 	sub.PlanID = planID.String
 	sub.NodeID = nodeID.String
 	sub.NodeTenantID = nodeTenantID.String
+	sub.SubToken = subToken.String
 	return &sub, nil
 }
 
 func (s *Store) GetSubscription(id string) (*domain.Subscription, error) {
 	row := s.db.QueryRow(`SELECT `+subColumns+` FROM subscriptions WHERE id = ?`, id)
+	sub, err := scanSubscription(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return sub, err
+}
+
+// GetSubscriptionByToken loads a subscription by its public page token.
+func (s *Store) GetSubscriptionByToken(token string) (*domain.Subscription, error) {
+	row := s.db.QueryRow(`SELECT `+subColumns+` FROM subscriptions WHERE sub_token = ?`, token)
 	sub, err := scanSubscription(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
