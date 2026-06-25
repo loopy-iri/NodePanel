@@ -5,6 +5,8 @@
 > Repo: `https://github.com/loopy-iri/NodePanel`
 > نودِ چند-مستأجری در ریپوی جدا: `https://github.com/loopy-iri/NodeAgent`
 
+> 📖 **راهنمای کامل (نصب، فروش، اتصال مشتری، API):** [`docs/wiki/`](docs/wiki/Home.md) — نسخه‌ی تب Wiki روی ریپوی NodeAgent منتشر شده است.
+
 ## مرز مسئولیت
 پنل **منطق پول ندارد** (کیف‌پول/قیمت/پرداخت در ربات فروش است). فقط بایت/زمان/وضعیت را مدیریت و مصرف/overage را از طریق API + webhook expose می‌کند.
 
