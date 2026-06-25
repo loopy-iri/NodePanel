@@ -10,7 +10,7 @@ import (
 )
 
 const subColumns = `id, customer_id, plan_id, node_id, node_tenant_id, status, period_id,
-	start_at, end_at, quota_bytes, used_bytes, credit_limit_bytes, notified_threshold, created_at, sub_token`
+	start_at, end_at, quota_bytes, used_bytes, credit_limit_bytes, notified_threshold, created_at, sub_token, api_key`
 
 // CreateSubscription persists a new subscription row.
 func (s *Store) CreateSubscription(sub *domain.Subscription) error {
@@ -31,19 +31,19 @@ func (s *Store) CreateSubscription(sub *domain.Subscription) error {
 	}
 	_, err := s.db.Exec(
 		`INSERT INTO subscriptions (`+subColumns+`)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sub.ID, sub.CustomerID, sub.PlanID, sub.NodeID, sub.NodeTenantID, sub.Status, sub.PeriodID,
-		sub.StartAt, sub.EndAt, sub.QuotaBytes, sub.UsedBytes, sub.CreditLimitBytes, sub.NotifiedThreshold, sub.CreatedAt, sub.SubToken,
+		sub.StartAt, sub.EndAt, sub.QuotaBytes, sub.UsedBytes, sub.CreditLimitBytes, sub.NotifiedThreshold, sub.CreatedAt, sub.SubToken, sub.APIKey,
 	)
 	return err
 }
 
 func scanSubscription(row interface{ Scan(...any) error }) (*domain.Subscription, error) {
 	var sub domain.Subscription
-	var planID, nodeID, nodeTenantID, subToken sql.NullString
+	var planID, nodeID, nodeTenantID, subToken, apiKey sql.NullString
 	err := row.Scan(
 		&sub.ID, &sub.CustomerID, &planID, &nodeID, &nodeTenantID, &sub.Status, &sub.PeriodID,
-		&sub.StartAt, &sub.EndAt, &sub.QuotaBytes, &sub.UsedBytes, &sub.CreditLimitBytes, &sub.NotifiedThreshold, &sub.CreatedAt, &subToken,
+		&sub.StartAt, &sub.EndAt, &sub.QuotaBytes, &sub.UsedBytes, &sub.CreditLimitBytes, &sub.NotifiedThreshold, &sub.CreatedAt, &subToken, &apiKey,
 	)
 	if err != nil {
 		return nil, err
@@ -52,6 +52,7 @@ func scanSubscription(row interface{ Scan(...any) error }) (*domain.Subscription
 	sub.NodeID = nodeID.String
 	sub.NodeTenantID = nodeTenantID.String
 	sub.SubToken = subToken.String
+	sub.APIKey = apiKey.String
 	return &sub, nil
 }
 

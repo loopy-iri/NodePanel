@@ -24,6 +24,7 @@ type subInfoResponse struct {
 	GRPCAddress string          `json:"grpc_address"`
 	Protocol    string          `json:"protocol"`
 	CertPEM     string          `json:"cert_pem"`
+	APIKey      string          `json:"api_key"`
 	Inbounds    json.RawMessage `json:"inbounds"`
 }
 
@@ -40,6 +41,7 @@ func (a *API) loadSubInfoByToken(ctx context.Context, token string) (*subInfoRes
 		UsedBytes:  sub.UsedBytes,
 		EndAt:      sub.EndAt,
 		Protocol:   "grpc",
+		APIKey:     sub.APIKey,
 		Inbounds:   json.RawMessage(`{"inbounds":[]}`),
 	}
 	if r := sub.QuotaBytes - sub.UsedBytes; r > 0 {
@@ -111,6 +113,7 @@ func (a *API) subPage(w http.ResponseWriter, r *http.Request) {
 		DaysLeft:    info.DaysLeft,
 		GRPCAddress: info.GRPCAddress,
 		Protocol:    info.Protocol,
+		APIKey:      info.APIKey,
 		CertPEM:     info.CertPEM,
 		Inbounds:    inboundsPretty.String(),
 	}
@@ -120,12 +123,12 @@ func (a *API) subPage(w http.ResponseWriter, r *http.Request) {
 }
 
 type subPageData struct {
-	NodeName, Status, StatusFa               string
-	Used, Quota, Remaining                   string
-	Pct                                      int
-	Expiry                                   string
-	DaysLeft                                 int64
-	GRPCAddress, Protocol, CertPEM, Inbounds string
+	NodeName, Status, StatusFa                       string
+	Used, Quota, Remaining                           string
+	Pct                                              int
+	Expiry                                           string
+	DaysLeft                                         int64
+	GRPCAddress, Protocol, APIKey, CertPEM, Inbounds string
 }
 
 func statusFa(s string) string {
@@ -209,6 +212,11 @@ const subPageHTML = `<!doctype html>
       <button onclick="cp('addr')">کپی آدرس</button>
     </div>
     <div class="field">
+      <div class="lbl">کلید API (هنگام افزودن نود در پنل وارد کن)</div>
+      <input class="copy" id="apikey" readonly value="{{.APIKey}}"/>
+      <button onclick="cp('apikey')">کپی کلید</button>
+    </div>
+    <div class="field">
       <div class="lbl">پروتکل</div>
       <input class="copy" readonly value="{{.Protocol}}"/>
     </div>
@@ -222,7 +230,7 @@ const subPageHTML = `<!doctype html>
       <textarea id="inb" rows="12" readonly>{{.Inbounds}}</textarea>
       <button onclick="cp('inb')">کپی کانفیگ</button>
     </div>
-    <p class="muted">کلید API مشتری را جداگانه دریافت کرده‌ای؛ همان را هنگام افزودن نود در پنل PasarGuard وارد کن.</p>
+    <p class="muted">کلید API مشتری بالا را هنگام افزودن نود در پنل PasarGuard وارد کن.</p>
   </div>
 </div>
 <script>

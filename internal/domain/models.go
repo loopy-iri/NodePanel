@@ -46,6 +46,7 @@ type Subscription struct {
 	NodeID            string `json:"node_id"`
 	NodeTenantID      string `json:"node_tenant_id"`
 	SubToken          string `json:"sub_token,omitempty"`
+	APIKey            string `json:"-"` // raw customer key, stored for the public sub page
 	Status            string `json:"status"`
 	PeriodID          uint64 `json:"period_id"`
 	StartAt           int64  `json:"start_at"`

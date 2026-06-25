@@ -81,6 +81,7 @@ func (a *API) createSubscription(w http.ResponseWriter, r *http.Request) {
 		PlanID:           plan.ID,
 		NodeID:           node.ID,
 		NodeTenantID:     tenantID,
+		APIKey:           rawKey,
 		Status:           "active",
 		PeriodID:         1,
 		StartAt:          now,
