@@ -248,6 +248,86 @@ async function guard(fn) {
 }
 const GB = 1024 * 1024 * 1024;
 
+// Ready-made Xray core templates for the node config editor. Keep `clients`
+// empty — the system injects users per tenant. The inbound tag should match the
+// node's PG_AGENT_FORCE_INBOUNDS (default "vless-in").
+const CONFIG_TEMPLATES = [
+  {
+    label: "VLESS + TCP (ساده / تست — بدون TLS)",
+    config: {
+      log: { loglevel: "warning" },
+      inbounds: [
+        { tag: "vless-in", listen: "0.0.0.0", port: 443, protocol: "vless",
+          settings: { clients: [], decryption: "none" },
+          streamSettings: { network: "tcp" },
+          sniffing: { enabled: true, destOverride: ["http", "tls", "quic"] } },
+      ],
+      outbounds: [{ tag: "direct", protocol: "freedom" }],
+    },
+  },
+  {
+    label: "VLESS + WS + TLS (دامنه/CDN)",
+    config: {
+      log: { loglevel: "warning" },
+      inbounds: [
+        { tag: "vless-in", listen: "0.0.0.0", port: 443, protocol: "vless",
+          settings: { clients: [], decryption: "none" },
+          streamSettings: { network: "ws", security: "tls",
+            wsSettings: { path: "/vless" },
+            tlsSettings: { serverName: "your.domain.com",
+              certificates: [{ certificateFile: "/etc/ssl/your.crt", keyFile: "/etc/ssl/your.key" }] } },
+          sniffing: { enabled: true, destOverride: ["http", "tls", "quic"] } },
+      ],
+      outbounds: [{ tag: "direct", protocol: "freedom" }],
+    },
+  },
+  {
+    label: "VLESS + Reality (بدون دامنه — کلید را جایگزین کن)",
+    config: {
+      log: { loglevel: "warning" },
+      inbounds: [
+        { tag: "vless-in", listen: "0.0.0.0", port: 443, protocol: "vless",
+          settings: { clients: [], decryption: "none" },
+          streamSettings: { network: "tcp", security: "reality",
+            realitySettings: { show: false, dest: "www.microsoft.com:443", xver: 0,
+              serverNames: ["www.microsoft.com"],
+              privateKey: "REPLACE_WITH_xray_x25519_PRIVATE_KEY",
+              shortIds: ["", "0123456789abcdef"] } },
+          sniffing: { enabled: true, destOverride: ["http", "tls", "quic"] } },
+      ],
+      outbounds: [{ tag: "direct", protocol: "freedom" }],
+    },
+  },
+  {
+    label: "VMess + WS",
+    config: {
+      log: { loglevel: "warning" },
+      inbounds: [
+        { tag: "vless-in", listen: "0.0.0.0", port: 443, protocol: "vmess",
+          settings: { clients: [] },
+          streamSettings: { network: "ws", wsSettings: { path: "/vmess" } },
+          sniffing: { enabled: true, destOverride: ["http", "tls", "quic"] } },
+      ],
+      outbounds: [{ tag: "direct", protocol: "freedom" }],
+    },
+  },
+  {
+    label: "Trojan + TCP + TLS",
+    config: {
+      log: { loglevel: "warning" },
+      inbounds: [
+        { tag: "vless-in", listen: "0.0.0.0", port: 443, protocol: "trojan",
+          settings: { clients: [] },
+          streamSettings: { network: "tcp", security: "tls",
+            tlsSettings: { serverName: "your.domain.com",
+              certificates: [{ certificateFile: "/etc/ssl/your.crt", keyFile: "/etc/ssl/your.key" }] } },
+          sniffing: { enabled: true, destOverride: ["http", "tls", "quic"] } },
+      ],
+      outbounds: [{ tag: "direct", protocol: "freedom" }],
+    },
+  },
+];
+
 // confirmModal asks for confirmation before a destructive action.
 function confirmModal(message, onYes) {
   modal(
@@ -411,17 +491,36 @@ async function nodeConfigModal(nodeID) {
   if (res.status === 401) { openTokenModal(); return; }
   const current = await res.text();
   const pretty = (() => { try { return JSON.stringify(JSON.parse(current), null, 2); } catch { return current; } })();
+  const isEmpty = (() => { try { const o = JSON.parse(current); return !o.inbounds || o.inbounds.length === 0; } catch { return true; } })();
+
+  const tmplOptions = CONFIG_TEMPLATES.map((t, i) => `<option value="${i}">${esc(t.label)}</option>`).join("");
 
   modal(
     "کانفیگ هسته‌ی نود",
-    `<p class="muted" style="font-size:12.5px;margin:0 0 8px">کانفیگ ثابت Xray (JSON). با اعمال، روی نود push و هسته راه‌اندازی می‌شود.</p>
+    `<p class="muted" style="font-size:12.5px;margin:0 0 8px">کانفیگ ثابت Xray (JSON). با اعمال، روی نود push و هسته راه‌اندازی می‌شود. آرایه‌ی <span class="mono">clients</span> را خالی بگذار؛ کاربرها خودکار تزریق می‌شوند.</p>
+     ${isEmpty ? `<p class="muted" style="font-size:12.5px;color:var(--warn);margin:0 0 8px">کانفیگ این نود خالی است — یک قالب انتخاب کن تا پر شود، سپس مقادیر را ویرایش و اعمال کن.</p>` : ""}
+     <div class="field"><label>قالب آماده</label>
+       <select id="cfgTmpl"><option value="">— انتخاب قالب —</option>${tmplOptions}</select></div>
      <div class="field"><textarea id="cfgEditor" rows="16" spellcheck="false" style="font-family:ui-monospace,monospace;font-size:12.5px">${esc(pretty)}</textarea></div>
      <div class="actions"><button class="btn primary" id="cfgApply">اعمال روی نود</button><button class="btn ghost" id="cfgCancel">انصراف</button></div>`,
     (root) => {
+      const editor = root.querySelector("#cfgEditor");
+      root.querySelector("#cfgTmpl").onchange = (e) => {
+        const idx = e.target.value;
+        if (idx === "") return;
+        const t = CONFIG_TEMPLATES[Number(idx)];
+        if (!t) return;
+        if (editor.value.trim() && editor.value.trim() !== "{}" && !confirm("محتوای فعلی ویرایشگر با قالب جایگزین شود؟")) {
+          e.target.value = "";
+          return;
+        }
+        editor.value = JSON.stringify(t.config, null, 2);
+        toast("قالب «" + t.label + "» بارگذاری شد — مقادیر را ویرایش کن");
+      };
       root.querySelector("#cfgCancel").onclick = closeModal;
       root.querySelector("#cfgApply").onclick = () =>
         guard(async () => {
-          const raw = root.querySelector("#cfgEditor").value.trim();
+          const raw = editor.value.trim();
           if (!raw) throw new Error("کانفیگ خالی است");
           try { JSON.parse(raw); } catch { throw new Error("JSON نامعتبر است"); }
           const r = await fetch(`/api/v1/nodes/${nodeID}/config`, {
