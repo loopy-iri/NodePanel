@@ -74,13 +74,17 @@ require_installed() { is_installed || die "panel is not installed. Run: $APP_NAM
 
 fetch_sources() {
     if [ -f "Dockerfile" ] && [ -f "docker-compose.yml" ] && [ -d "cmd/panel" ]; then
-        SRC_DIR="$(pwd)"
+        colorized_echo blue "Using local sources -> $APP_DIR"
+        local here; here="$(pwd)"
+        mkdir -p "$APP_DIR"
+        tar -cf - --exclude=.git -C "$here" . | tar -xf - -C "$APP_DIR"
     else
         need git git
-        colorized_echo blue "Cloning $REPO_URL ..."
-        rm -rf "$APP_DIR/src"; git clone --depth 1 "$REPO_URL" "$APP_DIR/src"
-        SRC_DIR="$APP_DIR/src"
+        colorized_echo blue "Cloning $REPO_URL -> $APP_DIR"
+        rm -rf "$APP_DIR"
+        git clone --depth 1 "$REPO_URL" "$APP_DIR"
     fi
+    SRC_DIR="$APP_DIR"
 }
 
 write_env() {
@@ -113,15 +117,17 @@ install_command() {
 
     detect_os; need curl curl; need openssl openssl
     install_docker; detect_compose
+    if [ -z "$token" ] && [ -f "$ENV_FILE" ]; then
+        token="$(grep -E '^PANEL_API_TOKEN=' "$ENV_FILE" | cut -d= -f2-)"
+    fi
     [ -z "$token" ] && token="$(gen_token)"
 
-    mkdir -p "$APP_DIR" "$DATA_DIR"
+    mkdir -p "$DATA_DIR"
     fetch_sources
-    cp "$SRC_DIR/docker-compose.yml" "$APP_DIR/"
     write_env "$token" "$port"
 
     colorized_echo blue "Building and starting the panel..."
-    ( cd "$SRC_DIR" && $COMPOSE --env-file "$ENV_FILE" -f docker-compose.yml up -d --build )
+    ( cd "$APP_DIR" && $COMPOSE --env-file "$ENV_FILE" -f docker-compose.yml up -d --build )
     install_panel_script || true
 
     local ip; ip="$(public_ip)"
@@ -152,9 +158,8 @@ edit_env_command(){ require_installed; "${EDITOR:-nano}" "$ENV_FILE"; }
 
 update_command() {
     check_root; require_installed; detect_compose
-    [ -d "$APP_DIR/src" ] && ( cd "$APP_DIR/src" && git pull --ff-only || true )
-    SRC_DIR="${APP_DIR}/src"; [ -d "$SRC_DIR" ] || SRC_DIR="$APP_DIR"
-    ( cd "$SRC_DIR" && $COMPOSE --env-file "$ENV_FILE" -f docker-compose.yml up -d --build )
+    [ -d "$APP_DIR/.git" ] && ( cd "$APP_DIR" && git pull --ff-only || true )
+    ( cd "$APP_DIR" && $COMPOSE --env-file "$ENV_FILE" -f docker-compose.yml up -d --build )
     colorized_echo green "panel updated."
 }
 
