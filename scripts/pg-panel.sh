@@ -12,14 +12,10 @@
 set -euo pipefail
 
 # ---------- globals ----------
-APP_NAME="${APP_NAME:-pg-panel}"
 GH_REPO="${GH_REPO:-loopy-iri/NodePanel}"
 BIN_NAME="pg-panel"
-BIN_PATH="/usr/local/bin/$BIN_NAME"
-APP_DIR="/opt/$APP_NAME"
-DATA_DIR="/var/lib/$APP_NAME"
-ENV_FILE="$APP_DIR/.env"
-SERVICE_UNIT="/etc/systemd/system/$APP_NAME.service"
+# Instance name (overridable with --name) decides paths/service/CLI name.
+APP_NAME="pg-panel"
 
 # ---------- helpers ----------
 colorized_echo() {
@@ -33,6 +29,16 @@ colorized_echo() {
 die() { colorized_echo red "$1"; exit 1; }
 check_root() { [ "$(id -u)" -eq 0 ] || die "This command must run as root (use sudo)."; }
 require_systemd() { command -v systemctl >/dev/null 2>&1 || die "systemd (systemctl) is required."; }
+
+validate_name() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$ ]]; }
+
+set_paths() {
+    APP_DIR="/opt/$APP_NAME"
+    DATA_DIR="/var/lib/$APP_NAME"
+    ENV_FILE="$APP_DIR/.env"
+    SERVICE_UNIT="/etc/systemd/system/$APP_NAME.service"
+    BIN_PATH="$APP_DIR/$BIN_NAME"
+}
 
 detect_os() {
     if command -v apt-get >/dev/null 2>&1; then PKG="apt";
@@ -242,7 +248,23 @@ usage() {
     echo "  --token TOKEN      API bearer token (auto-generated if omitted)"
     echo "  --port PORT        HTTP port (default 8080)"
     echo "  --version vX.Y.Z   Install a specific release (default: latest)"
+    echo
+    echo "Global options:"
+    echo "  --name NAME        Instance name (paths/service/CLI). Default: pg-panel"
 }
+
+# Parse global flags (--name) anywhere on the line; keep the rest in ARGS.
+ARGS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+    --name) APP_NAME="$2"; shift 2 ;;
+    --name=*) APP_NAME="${1#*=}"; shift ;;
+    *) ARGS+=("$1"); shift ;;
+    esac
+done
+set -- "${ARGS[@]+"${ARGS[@]}"}"
+validate_name "$APP_NAME" || die "invalid --name '$APP_NAME'."
+set_paths
 
 cmd="${1:-help}"; shift || true
 case "$cmd" in
