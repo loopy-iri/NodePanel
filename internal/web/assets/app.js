@@ -502,6 +502,7 @@ function subActions(s) {
       ? `<button class="btn sm ghost" data-resume="${s.id}">فعال‌سازی</button>`
       : `<button class="btn sm ghost" data-suspend="${s.id}">تعلیق</button>`;
   return `<div class="row" style="gap:6px">${toggle}
+    <button class="btn sm ghost" data-conn="${s.id}">اتصال مشتری</button>
     <button class="btn sm ghost" data-topup="${s.id}">شارژ حجم</button>
     <button class="btn sm ghost" data-renew="${s.id}">تمدید</button>
     <button class="btn sm danger" data-delsub="${s.id}">حذف</button></div>`;
@@ -543,6 +544,8 @@ async function viewSubscriptions(view) {
   );
   view.querySelectorAll("[data-renew]").forEach((b) =>
     (b.onclick = () => confirmModal("اشتراک تمدید شود؟ (مصرف صفر و انقضا تمدید می‌شود)", () => api(`/api/v1/subscriptions/${b.dataset.renew}/renew`, { method: "POST" }))));
+  view.querySelectorAll("[data-conn]").forEach((b) =>
+    (b.onclick = () => guard(() => connectionModal(b.dataset.conn))));
   view.querySelectorAll("[data-delsub]").forEach((b) =>
     (b.onclick = () => confirmModal("این اشتراک حذف و از نود حذف شود؟", () => api(`/api/v1/subscriptions/${b.dataset.delsub}`, { method: "DELETE" }))));
 }
@@ -586,6 +589,39 @@ function showApiKey(key, nodeAddr) {
         toast("کپی شد");
       };
       root.querySelector("#akClose").onclick = closeModal;
+    }
+  );
+}
+
+// connectionModal shows everything the customer needs to add this node in their
+// own PasarGuard panel: gRPC address, protocol, certificate and the node's real
+// inbound(s). The inbound must be replicated exactly so end-user links work.
+async function connectionModal(subID) {
+  const info = await api(`/api/v1/subscriptions/${subID}/connection`);
+  let inboundsPretty;
+  try { inboundsPretty = JSON.stringify(info.inbounds, null, 2); }
+  catch { inboundsPretty = String(info.inbounds || ""); }
+
+  modal(
+    "اطلاعات اتصال مشتری",
+    `<p class="muted" style="font-size:12.5px;margin:0 0 10px">این مقادیر را به مشتری بدهید تا نود را در پنل PasarGuard خودش اضافه کند. کلید مشتری فقط هنگام ساخت اشتراک نمایش داده می‌شود.</p>
+     <div class="field"><label>آدرس gRPC</label><input id="connAddr" readonly value="${esc(info.grpc_address)}" /></div>
+     <div class="field"><label>پروتکل</label><input readonly value="${esc(info.protocol)}" /></div>
+     <div class="field"><label>گواهی نود (Certificate)</label><textarea id="connCert" rows="5" readonly spellcheck="false" style="font-family:ui-monospace,monospace;font-size:12px">${esc(info.cert_pem || "—")}</textarea></div>
+     <div class="field"><label>inboundها (دقیقاً همین را در پنل خود بسازید)</label><textarea id="connIn" rows="10" readonly spellcheck="false" style="font-family:ui-monospace,monospace;font-size:12px">${esc(inboundsPretty)}</textarea></div>
+     <p class="muted" style="font-size:12px;margin:0 0 8px">${esc(info.note || "")}</p>
+     <div class="actions">
+       <button class="btn primary" id="connCopyAddr">کپی آدرس</button>
+       <button class="btn ghost" id="connCopyCert">کپی گواهی</button>
+       <button class="btn ghost" id="connCopyIn">کپی inbounds</button>
+       <button class="btn ghost" id="connClose">بستن</button>
+     </div>`,
+    (root) => {
+      const copy = (text) => { if (navigator.clipboard) navigator.clipboard.writeText(text); toast("کپی شد"); };
+      root.querySelector("#connCopyAddr").onclick = () => copy(info.grpc_address);
+      root.querySelector("#connCopyCert").onclick = () => copy(info.cert_pem || "");
+      root.querySelector("#connCopyIn").onclick = () => copy(inboundsPretty);
+      root.querySelector("#connClose").onclick = closeModal;
     }
   );
 }

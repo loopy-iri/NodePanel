@@ -307,7 +307,7 @@ paths:
   /api/v1/nodes/{id}/config:
     get:
       tags: [nodes]
-      summary: Get the node's last pushed fixed Xray config
+      summary: Get the node's current running Xray config (live, falls back to last pushed)
       parameters: [{ $ref: "#/components/parameters/IdParam" }]
       responses:
         "200":
@@ -323,6 +323,35 @@ paths:
       responses:
         "200": { description: Applied }
         "502": { $ref: "#/components/responses/NodeError" }
+  /api/v1/nodes/{id}/inbounds:
+    get:
+      tags: [nodes]
+      summary: Customer-shareable inbound definitions of the node
+      description: >
+        فقط بخش inbounds کانفیگ نود را برمی‌گرداند (بدون outbound/routing) تا
+        به مشتری بدهی و دقیقاً همان inbound را در پنل خودش بسازد. اگر force-inbounds
+        روی نود تنظیم شده باشد، فقط همان تگ‌ها برگردانده می‌شوند.
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200":
+          description: "Inbounds document: { inbounds: [...] }"
+          content: { application/json: { schema: { type: object } } }
+        "502": { $ref: "#/components/responses/NodeError" }
+  /api/v1/subscriptions/{id}/connection:
+    get:
+      tags: [subscriptions]
+      summary: Connection info to hand to the customer (gRPC address, cert, inbounds)
+      description: >
+        هرچه مشتری برای افزودن این نود در پنل PasarGuard خودش لازم دارد را برمی‌گرداند:
+        آدرس gRPC، گواهی نود و inboundهای قابل‌اشتراک. کلید مشتری اینجا نیست (فقط
+        یک‌بار هنگام ساخت اشتراک نمایش داده می‌شود).
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      responses:
+        "200":
+          description: Connection info
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectionInfo" }
   /api/v1/subscriptions/{id}:
     delete:
       tags: [subscriptions]
@@ -425,6 +454,15 @@ components:
         quota_bytes: { type: integer, format: int64 }
         used_bytes: { type: integer, format: int64 }
         overage_bytes: { type: integer, format: int64 }
+    ConnectionInfo:
+      type: object
+      properties:
+        node_name: { type: string }
+        grpc_address: { type: string, example: "1.2.3.4:62050" }
+        protocol: { type: string, example: "grpc" }
+        cert_pem: { type: string, description: "گواهی نود برای pin در پنل مشتری" }
+        inbounds: { type: object, description: "بخش inbounds نود برای کپی در پنل مشتری" }
+        note: { type: string }
     Webhook:
       type: object
       properties:

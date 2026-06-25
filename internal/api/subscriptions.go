@@ -2,7 +2,10 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -11,6 +14,10 @@ import (
 	"github.com/pasarguard/panel/internal/domain"
 	"github.com/pasarguard/panel/internal/nodeclient"
 )
+
+// defaultGRPCPort is the node's PasarGuard-compatible gRPC port (the install
+// script's default). The customer's panel connects here.
+const defaultGRPCPort = "62050"
 
 type createSubscriptionRequest struct {
 	PlanID           string `json:"plan_id"`
@@ -96,6 +103,62 @@ func (a *API) createSubscription(w http.ResponseWriter, r *http.Request) {
 		Subscription: *sub,
 		APIKey:       rawKey,
 		NodeAddress:  node.Address,
+	})
+}
+
+// grpcAddressFor derives the node's gRPC endpoint (host:62050) from its stored
+// control address (e.g. https://1.2.3.4:8090 -> 1.2.3.4:62050).
+func grpcAddressFor(address string) string {
+	host := address
+	if u, err := url.Parse(address); err == nil && u.Host != "" {
+		host = u.Hostname()
+	} else {
+		host = strings.TrimPrefix(strings.TrimPrefix(host, "https://"), "http://")
+		if i := strings.IndexByte(host, ':'); i >= 0 {
+			host = host[:i]
+		}
+		if i := strings.IndexByte(host, '/'); i >= 0 {
+			host = host[:i]
+		}
+	}
+	return host + ":" + defaultGRPCPort
+}
+
+type connectionInfoResponse struct {
+	NodeName    string          `json:"node_name"`
+	GRPCAddress string          `json:"grpc_address"`
+	Protocol    string          `json:"protocol"`
+	CertPEM     string          `json:"cert_pem"`
+	Inbounds    json.RawMessage `json:"inbounds"`
+	Note        string          `json:"note"`
+}
+
+// subscriptionConnection returns everything a customer needs to add this node in
+// their own PasarGuard panel: the gRPC address, the node certificate, and the
+// shareable inbound definitions (so their inbound matches the node's real one).
+// The customer's API key is NOT included — it is shown only once at creation.
+func (a *API) subscriptionConnection(w http.ResponseWriter, r *http.Request) {
+	sub, node, ok := a.loadSubAndNode(w, r)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	var inbounds json.RawMessage
+	if ib, err := a.clientForNode(node).GetInbounds(ctx); err == nil {
+		inbounds = ib
+	} else {
+		inbounds = json.RawMessage(`{"inbounds":[]}`)
+	}
+	_ = sub
+	writeJSON(w, http.StatusOK, connectionInfoResponse{
+		NodeName:    node.Name,
+		GRPCAddress: grpcAddressFor(node.Address),
+		Protocol:    "grpc",
+		CertPEM:     node.CertPEM,
+		Inbounds:    inbounds,
+		Note:        "Add this node in your PasarGuard panel with the gRPC address, protocol grpc, the certificate, and your customer API key. Replicate the inbound(s) exactly (port/protocol/network/TLS/SNI) so user links work.",
 	})
 }
 

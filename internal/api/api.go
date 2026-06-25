@@ -65,11 +65,13 @@ func (a *API) Router() http.Handler {
 		r.Get("/nodes/{id}/health", a.nodeHealth)
 		r.Get("/nodes/{id}/config", a.getNodeConfig)
 		r.Put("/nodes/{id}/config", a.updateNodeConfig)
+		r.Get("/nodes/{id}/inbounds", a.getNodeInbounds)
 
 		r.Post("/subscriptions/{id}/suspend", a.suspendSubscription)
 		r.Post("/subscriptions/{id}/resume", a.resumeSubscription)
 		r.Post("/subscriptions/{id}/topup-quota", a.topupQuota)
 		r.Post("/subscriptions/{id}/renew", a.renewSubscription)
+		r.Get("/subscriptions/{id}/connection", a.subscriptionConnection)
 		r.Delete("/subscriptions/{id}", a.deleteSubscription)
 
 		r.Get("/webhooks", a.listWebhooks)

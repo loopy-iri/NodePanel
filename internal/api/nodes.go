@@ -125,20 +125,49 @@ func (a *API) deleteNode(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// getNodeConfig returns the last fixed Xray config the panel pushed to a node,
-// so the GUI editor can prefill it.
+// getNodeConfig returns the node's currently running Xray config. It queries the
+// node live (so the GUI/operator sees the real inbound to share with customers)
+// and falls back to the last config the panel pushed if the node is unreachable.
 func (a *API) getNodeConfig(w http.ResponseWriter, r *http.Request) {
 	node, err := a.store.GetNode(chi.URLParam(r, "id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "node not found")
 		return
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
 	w.Header().Set("Content-Type", "application/json")
+	if live, err := a.clientForNode(node).GetConfig(ctx); err == nil && len(bytes.TrimSpace(live)) > 0 {
+		_, _ = w.Write(live)
+		return
+	}
 	if node.ConfigJSON == "" {
 		_, _ = w.Write([]byte("{}"))
 		return
 	}
 	_, _ = w.Write([]byte(node.ConfigJSON))
+}
+
+// getNodeInbounds returns the customer-shareable inbound definitions of a node
+// ({"inbounds":[...]}), so the operator can hand them to a buyer to replicate
+// the connection in their own panel.
+func (a *API) getNodeInbounds(w http.ResponseWriter, r *http.Request) {
+	node, err := a.store.GetNode(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "node not found")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	inbounds, err := a.clientForNode(node).GetInbounds(ctx)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "node unreachable: "+err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(inbounds)
 }
 
 // updateNodeConfig pushes a new fixed Xray config to the node and stores it.

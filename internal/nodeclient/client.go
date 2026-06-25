@@ -165,6 +165,37 @@ func (c *Client) ApplyConfig(ctx context.Context, configJSON string) error {
 	return c.do(ctx, http.MethodPost, "/admin/config", strings.NewReader(configJSON), nil)
 }
 
+// GetConfig returns the node's currently running core config as raw JSON.
+func (c *Client) GetConfig(ctx context.Context) (json.RawMessage, error) {
+	return c.getRaw(ctx, "/admin/config")
+}
+
+// GetInbounds returns the customer-shareable inbound definitions as raw JSON
+// ({"inbounds":[...]}), so a buyer can replicate the connection in their panel.
+func (c *Client) GetInbounds(ctx context.Context) (json.RawMessage, error) {
+	return c.getRaw(ctx, "/admin/inbounds")
+}
+
+// getRaw performs a GET and returns the raw response body (for endpoints that
+// return arbitrary JSON documents rather than a typed struct).
+func (c *Client) getRaw(ctx context.Context, path string) (json.RawMessage, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-API-Key", c.masterKey)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("node request GET %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("node GET %s: status %d: %s", path, resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+	return json.RawMessage(data), nil
+}
+
 func (c *Client) CreateTenant(ctx context.Context, req CreateTenantRequest) (*TenantView, error) {
 	var tv TenantView
 	if err := c.doJSON(ctx, http.MethodPost, "/admin/tenants", req, &tv); err != nil {
