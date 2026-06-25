@@ -58,9 +58,7 @@ func (a *API) loadSubInfoByToken(ctx context.Context, token string) (*subInfoRes
 		info.GRPCAddress = grpcAddressFor(node.Address, node.GRPCPort)
 		cctx, cancel := context.WithTimeout(ctx, 12*time.Second)
 		defer cancel()
-		if ib, err := a.clientForNode(node).GetInbounds(cctx); err == nil {
-			info.Inbounds = ib
-		}
+		info.Inbounds = a.resolveInbounds(cctx, node)
 	}
 	return info, true
 }

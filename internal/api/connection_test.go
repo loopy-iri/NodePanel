@@ -1,6 +1,29 @@
 package api
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestInboundsFromConfigStripsRealityPrivateKey(t *testing.T) {
+	cfg := `{"inbounds":[{"tag":"vless-in","port":443,"protocol":"vless",
+		"streamSettings":{"security":"reality","realitySettings":{"privateKey":"SECRET","serverNames":["x.com"]}}}],
+		"outbounds":[{"protocol":"freedom"}]}`
+	out := inboundsFromConfig(cfg)
+	if out == nil {
+		t.Fatal("expected inbounds, got nil")
+	}
+	s := string(out)
+	if strings.Contains(s, "SECRET") {
+		t.Fatalf("private key leaked: %s", s)
+	}
+	if !strings.Contains(s, "vless-in") || strings.Contains(s, "freedom") {
+		t.Fatalf("unexpected content (should keep inbounds, drop outbounds): %s", s)
+	}
+	if inboundsFromConfig("") != nil || inboundsFromConfig(`{"inbounds":[]}`) != nil {
+		t.Fatal("empty config should yield nil (no fallback)")
+	}
+}
 
 func TestGRPCAddressFor(t *testing.T) {
 	cases := []struct {

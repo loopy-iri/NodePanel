@@ -152,12 +152,7 @@ func (a *API) subscriptionConnection(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
-	var inbounds json.RawMessage
-	if ib, err := a.clientForNode(node).GetInbounds(ctx); err == nil {
-		inbounds = ib
-	} else {
-		inbounds = json.RawMessage(`{"inbounds":[]}`)
-	}
+	inbounds := a.resolveInbounds(ctx, node)
 	_ = sub
 	writeJSON(w, http.StatusOK, connectionInfoResponse{
 		NodeName:    node.Name,

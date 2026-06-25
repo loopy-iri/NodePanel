@@ -211,8 +211,8 @@ func (a *API) getNodeConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 // getNodeInbounds returns the customer-shareable inbound definitions of a node
-// ({"inbounds":[...]}), so the operator can hand them to a buyer to replicate
-// the connection in their own panel.
+// ({"inbounds":[...]}). Prefers the live node; falls back to the panel's stored
+// config so it still works with an older/unreachable node.
 func (a *API) getNodeInbounds(w http.ResponseWriter, r *http.Request) {
 	node, err := a.store.GetNode(chi.URLParam(r, "id"))
 	if err != nil {
@@ -221,14 +221,74 @@ func (a *API) getNodeInbounds(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-
-	inbounds, err := a.clientForNode(node).GetInbounds(ctx)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "node unreachable: "+err.Error())
-		return
-	}
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(inbounds)
+	_, _ = w.Write(a.resolveInbounds(ctx, node))
+}
+
+// resolveInbounds returns a node's customer-shareable inbounds. It prefers the
+// live node (which redacts secrets and adds the Reality public key); if the node
+// is unreachable or older (no /admin/inbounds) or returns nothing, it falls back
+// to the panel's stored fixed config with the Reality private key stripped.
+func (a *API) resolveInbounds(ctx context.Context, node *domain.Node) json.RawMessage {
+	if ib, err := a.clientForNode(node).GetInbounds(ctx); err == nil && hasInbounds(ib) {
+		return ib
+	}
+	if fb := inboundsFromConfig(node.ConfigJSON); fb != nil {
+		return fb
+	}
+	return json.RawMessage(`{"inbounds":[]}`)
+}
+
+func hasInbounds(raw json.RawMessage) bool {
+	var d struct {
+		Inbounds []json.RawMessage `json:"inbounds"`
+	}
+	if json.Unmarshal(raw, &d) != nil {
+		return false
+	}
+	return len(d.Inbounds) > 0
+}
+
+// inboundsFromConfig extracts {"inbounds":[...]} from a full Xray config and
+// strips server-only secrets (Reality privateKey) before sharing.
+func inboundsFromConfig(cfg string) json.RawMessage {
+	if cfg == "" {
+		return nil
+	}
+	var doc struct {
+		Inbounds []json.RawMessage `json:"inbounds"`
+	}
+	if json.Unmarshal([]byte(cfg), &doc) != nil || len(doc.Inbounds) == 0 {
+		return nil
+	}
+	cleaned := make([]json.RawMessage, 0, len(doc.Inbounds))
+	for _, ib := range doc.Inbounds {
+		cleaned = append(cleaned, redactInboundJSON(ib))
+	}
+	out, err := json.Marshal(struct {
+		Inbounds []json.RawMessage `json:"inbounds"`
+	}{Inbounds: cleaned})
+	if err != nil {
+		return nil
+	}
+	return out
+}
+
+func redactInboundJSON(raw json.RawMessage) json.RawMessage {
+	var m map[string]any
+	if json.Unmarshal(raw, &m) != nil {
+		return raw
+	}
+	if ss, ok := m["streamSettings"].(map[string]any); ok {
+		if rs, ok := ss["realitySettings"].(map[string]any); ok {
+			delete(rs, "privateKey")
+		}
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return raw
+	}
+	return out
 }
 
 // updateNodeConfig pushes a new fixed Xray config to the node and stores it.
