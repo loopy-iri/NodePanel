@@ -19,14 +19,16 @@
 ## اجرا
 
 ```bash
-# نصب کامل (Docker + build + up):
+# نصب کامل (دانلود باینری per-arch + systemd؛ بدون build روی سرور):
 sudo bash -c "$(curl -sL https://raw.githubusercontent.com/loopy-iri/NodePanel/main/scripts/pg-panel.sh)" @ install
 
 # یا از روی clone:
 sudo bash scripts/pg-panel.sh install --port 8080
 ```
 
-دستورهای CLI: `install, update, uninstall, up, down, restart, status, logs, set-token [TOKEN], info, edit, edit-env, completion`.
+دستورهای CLI: `install, update [VER], uninstall, up, down, restart, status, logs, set-token [TOKEN], info, edit-env, completion`.
+
+> نصب از **باینری از‌پیش‌ساخته** (GitHub Releases، web embed‌شده در باینری) و اجرا با **systemd** (سرویس `pg-panel`) — بدون Docker. برای ساخت باینری‌ها یک تگ `v*` push کن.
 
 ### اجرای محلی (توسعه)
 ```bash
