@@ -191,6 +191,7 @@ paths:
                 name: { type: string }
                 address: { type: string, example: "https://1.2.3.4:8090" }
                 master_key: { type: string }
+                core_key: { type: string, description: "کلید مدیریت هسته از پنل PasarGuard (اختیاری)" }
                 grpc_port: { type: integer, description: "پورت gRPC سازگار PasarGuard (پیش‌فرض 62050)" }
                 cert_pem: { type: string, description: "گواهی سلف‌ساین نود برای pin (خالی = دریافت خودکار TOFU)" }
                 config: { type: object, description: "کانفیگ ثابت Xray (اختیاری) برای push" }
@@ -203,7 +204,7 @@ paths:
   /api/v1/nodes/{id}:
     get:
       tags: [nodes]
-      summary: Node connection details (host, ports, certificate) for the operator
+      summary: Node connection details (host, ports, keys, certificate) for the operator
       parameters: [{ $ref: "#/components/parameters/IdParam" }]
       responses:
         "200":
@@ -211,6 +212,25 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/NodeDetail" }
+    patch:
+      tags: [nodes]
+      summary: Update a node (name/address/grpc_port/keys/cert)
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                address: { type: string }
+                grpc_port: { type: integer }
+                master_key: { type: string, description: "خالی = بدون تغییر" }
+                core_key: { type: string }
+                cert_pem: { type: string, description: "خالی = بدون تغییر" }
+      responses:
+        "200": { description: Updated, content: { application/json: { schema: { $ref: "#/components/schemas/Node" } } } }
     delete:
       tags: [nodes]
       summary: Delete a node
@@ -461,6 +481,8 @@ components:
         grpc_address: { type: string, example: "1.2.3.4:62050" }
         grpc_port: { type: integer, example: 62050 }
         protocol: { type: string, example: "grpc" }
+        master_key: { type: string }
+        core_key: { type: string }
         cert_pem: { type: string }
         status: { type: string }
         version: { type: string }

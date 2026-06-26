@@ -59,6 +59,7 @@ func Open(path string) (*Store, error) {
 func migrate(db *sql.DB) error {
 	addColumns := []string{
 		`ALTER TABLE nodes ADD COLUMN grpc_port INTEGER NOT NULL DEFAULT 62050`,
+		`ALTER TABLE nodes ADD COLUMN core_key TEXT`,
 		`ALTER TABLE subscriptions ADD COLUMN sub_token TEXT`,
 		`ALTER TABLE subscriptions ADD COLUMN api_key TEXT`,
 	}

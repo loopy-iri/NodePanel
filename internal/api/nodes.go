@@ -25,6 +25,7 @@ type registerNodeRequest struct {
 	Name      string          `json:"name"`
 	Address   string          `json:"address"`
 	MasterKey string          `json:"master_key"`
+	CoreKey   string          `json:"core_key"`         // PasarGuard core-management key (optional)
 	CertPEM   string          `json:"cert_pem"`         // node's self-signed cert (PEM) to pin
 	GRPCPort  int             `json:"grpc_port"`        // PasarGuard-compat gRPC port (default 62050)
 	Config    json.RawMessage `json:"config,omitempty"` // optional fixed Xray config to push
@@ -50,7 +51,7 @@ func (a *API) registerNode(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	node, err := a.store.CreateNode(req.Name, req.Address, req.MasterKey, req.CertPEM, string(req.Config), req.GRPCPort)
+	node, err := a.store.CreateNode(req.Name, req.Address, req.MasterKey, req.CertPEM, string(req.Config), req.GRPCPort, req.CoreKey)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create node")
 		return
@@ -120,8 +121,8 @@ func (a *API) getNodeOr404(w http.ResponseWriter, id string) (*domain.Node, erro
 }
 
 // nodeDetailResponse exposes the full connection details of a node for the
-// operator: addresses, ports and the certificate (needed to register the node
-// in a customer's panel). The master key is never returned.
+// operator: addresses, ports, credentials and the certificate (needed to
+// register the node in a customer's or the operator's PasarGuard panel).
 type nodeDetailResponse struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -131,6 +132,8 @@ type nodeDetailResponse struct {
 	GRPCAddress string `json:"grpc_address"` // customer's panel -> node
 	GRPCPort    int    `json:"grpc_port"`
 	Protocol    string `json:"protocol"`
+	MasterKey   string `json:"master_key"`
+	CoreKey     string `json:"core_key"`
 	CertPEM     string `json:"cert_pem"`
 	Status      string `json:"status"`
 	Version     string `json:"version,omitempty"`
@@ -139,7 +142,7 @@ type nodeDetailResponse struct {
 }
 
 // getNodeDetail returns a node's full connection info (host, service/gRPC ports,
-// certificate) so the operator can copy them and configure a customer's panel.
+// keys and certificate) so the operator can copy them and configure a panel.
 func (a *API) getNodeDetail(w http.ResponseWriter, r *http.Request) {
 	node, err := a.store.GetNode(chi.URLParam(r, "id"))
 	if err != nil {
@@ -159,12 +162,43 @@ func (a *API) getNodeDetail(w http.ResponseWriter, r *http.Request) {
 		GRPCAddress: grpcAddressFor(node.Address, grpcPort),
 		GRPCPort:    grpcPort,
 		Protocol:    "grpc",
+		MasterKey:   node.MasterKey,
+		CoreKey:     node.CoreKey,
 		CertPEM:     node.CertPEM,
 		Status:      node.Status,
 		Version:     node.Version,
 		LastSeenAt:  node.LastSeenAt,
 		CreatedAt:   node.CreatedAt,
 	})
+}
+
+type updateNodeRequest struct {
+	Name      string `json:"name"`
+	Address   string `json:"address"`
+	GRPCPort  int    `json:"grpc_port"`
+	MasterKey string `json:"master_key"` // empty keeps existing
+	CoreKey   string `json:"core_key"`
+	CertPEM   string `json:"cert_pem"` // empty keeps existing
+}
+
+// updateNode edits a node's name/address/ports/keys/cert.
+func (a *API) updateNode(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req updateNodeRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.Address) == "" {
+		writeError(w, http.StatusBadRequest, "name and address are required")
+		return
+	}
+	if err := a.store.UpdateNode(id, req.Name, req.Address, req.GRPCPort, req.MasterKey, req.CoreKey, req.CertPEM); err != nil {
+		writeNotFoundOr500(w, err)
+		return
+	}
+	node, _ := a.store.GetNode(id)
+	writeJSON(w, http.StatusOK, node)
 }
 
 // servicePortOf extracts the HTTP control port from a node address (default 8090).

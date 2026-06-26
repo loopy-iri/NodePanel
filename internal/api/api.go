@@ -63,6 +63,7 @@ func (a *API) Router() http.Handler {
 		r.Post("/nodes", a.registerNode)
 		r.Delete("/nodes/{id}", a.deleteNode)
 		r.Get("/nodes/{id}", a.getNodeDetail)
+		r.Patch("/nodes/{id}", a.updateNode)
 		r.Get("/nodes/{id}/health", a.nodeHealth)
 		r.Get("/nodes/{id}/config", a.getNodeConfig)
 		r.Put("/nodes/{id}/config", a.updateNodeConfig)

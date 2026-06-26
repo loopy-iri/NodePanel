@@ -444,8 +444,8 @@ async function viewNodes(view) {
   });
 }
 
-// nodeDetailModal shows a node's connection info (host, ports, gRPC address and
-// certificate) with copy buttons, plus a shortcut to the Xray config editor.
+// nodeDetailModal shows a node's connection info (host, ports, gRPC address,
+// keys and certificate) with copy buttons, plus shortcuts to edit/config.
 async function nodeDetailModal(nodeID) {
   const d = await api(`/api/v1/nodes/${nodeID}`);
   const field = (label, value, btnId) =>
@@ -459,15 +459,18 @@ async function nodeDetailModal(nodeID) {
     `${field("IP / هاست", d.host, "cpHost")}
      ${field("آدرس سرویس (کنترل، HTTPS)", d.address, "cpAddr")}
      ${field("پورت سرویس (HTTP)", d.service_port)}
-     ${field("آدرس gRPC (برای پنل مشتری)", d.grpc_address, "cpGrpc")}
+     ${field("آدرس gRPC (برای پنل PasarGuard)", d.grpc_address, "cpGrpc")}
      ${field("پورت gRPC", d.grpc_port)}
      ${field("پروتکل", d.protocol)}
+     ${field("🔑 Master key (پنل فروش / مدیریت کامل)", d.master_key || "—", "cpMaster")}
+     ${field("🔑 Core key (پنل PasarGuard تو / کانفیگ هسته)", d.core_key || "— (تنظیم نشده)", "cpCore")}
      ${field("وضعیت", (STATUS_FA[d.status] || d.status) + (d.version ? " — " + d.version : ""))}
      <div class="field"><label>گواهی نود (Certificate)</label>
        <textarea id="dCert" rows="6" readonly spellcheck="false" style="font-family:ui-monospace,monospace;font-size:12px">${esc(d.cert_pem || "—")}</textarea></div>
-     <p class="muted" style="font-size:12px;margin:0 0 8px">این مقادیر را برای افزودن نود در پنل PasarGuard مشتری استفاده کن. کانفیگ Xray را با دکمه‌ی زیر ببین/ویرایش کن.</p>
+     <p class="muted" style="font-size:12px;margin:0 0 8px">برای فروش، مشتری از کلید اشتراکش استفاده می‌کند. برای مدیریت هسته‌ی مشترک از پنل PasarGuard خودت، از Core key استفاده کن.</p>
      <div class="actions">
        <button class="btn primary" id="dCfg">کانفیگ Xray</button>
+       <button class="btn ghost" id="dEdit">ویرایش نود</button>
        <button class="btn ghost" id="dCertCopy">کپی گواهی</button>
        <button class="btn ghost" id="dClose">بستن</button>
      </div>`,
@@ -476,9 +479,35 @@ async function nodeDetailModal(nodeID) {
       root.querySelector("#cpHost").onclick = () => copy(d.host);
       root.querySelector("#cpAddr").onclick = () => copy(d.address);
       root.querySelector("#cpGrpc").onclick = () => copy(d.grpc_address);
+      root.querySelector("#cpMaster").onclick = () => copy(d.master_key || "");
+      root.querySelector("#cpCore").onclick = () => copy(d.core_key || "");
       root.querySelector("#dCertCopy").onclick = () => copy(d.cert_pem || "");
       root.querySelector("#dClose").onclick = closeModal;
       root.querySelector("#dCfg").onclick = () => { closeModal(); guard(() => nodeConfigModal(nodeID)); };
+      root.querySelector("#dEdit").onclick = () => { closeModal(); nodeEditModal(d); };
+    }
+  );
+}
+
+// nodeEditModal edits an existing node (set core key, change address/port/cert).
+function nodeEditModal(d) {
+  formModal(
+    "ویرایش نود — " + esc(d.name),
+    [
+      { name: "name", label: "نام", value: d.name },
+      { name: "address", label: "آدرس", value: d.address },
+      { name: "grpc_port", label: "پورت gRPC", type: "number", value: String(d.grpc_port || 62050) },
+      { name: "core_key", label: "Core key (برای مدیریت هسته از پنل PasarGuard تو)", value: d.core_key || "" },
+      { name: "master_key", label: "Master key (خالی = بدون تغییر)", type: "password", hint: "فقط اگر کلید مستر نود را عوض کرده‌ای پر کن." },
+      { name: "cert_pem", label: "گواهی نود (PEM، خالی = بدون تغییر)", type: "textarea" },
+    ],
+    async (v) => {
+      const body = { name: v.name, address: v.address, core_key: v.core_key };
+      if (v.grpc_port) body.grpc_port = parseInt(v.grpc_port, 10);
+      if (v.master_key) body.master_key = v.master_key;
+      if (v.cert_pem) body.cert_pem = v.cert_pem;
+      await api(`/api/v1/nodes/${d.id}`, { method: "PATCH", body: JSON.stringify(body) });
+      toast("نود به‌روزرسانی شد");
     }
   );
 }
@@ -547,12 +576,14 @@ function nodeModal() {
       { name: "name", label: "نام" },
       { name: "address", label: "آدرس", placeholder: "https://1.2.3.4:8090" },
       { name: "master_key", label: "کلید مستر", type: "password" },
+      { name: "core_key", label: "Core key (اختیاری — برای مدیریت هسته از پنل PasarGuard تو)", hint: "همان PG_AGENT_CORE_KEY نود؛ با pg-node-agent edit-env قابل دیدن است." },
       { name: "grpc_port", label: "پورت gRPC (پیش‌فرض 62050)", type: "number", value: "62050" },
       { name: "cert_pem", label: "گواهی نود (PEM، اختیاری)", type: "textarea", hint: "خالی بگذارید تا پنل خودکار گواهی نود را دریافت و pin کند (TOFU)." },
       { name: "config", label: "کانفیگ ثابت Xray (JSON، اختیاری)", type: "textarea", hint: "در صورت ورود، روی نود اعمال و هسته راه‌اندازی می‌شود." },
     ],
     async (v) => {
       const body = { name: v.name, address: v.address, master_key: v.master_key };
+      if (v.core_key) body.core_key = v.core_key;
       if (v.grpc_port) body.grpc_port = parseInt(v.grpc_port, 10);
       if (v.cert_pem) body.cert_pem = v.cert_pem;
       if (v.config) {

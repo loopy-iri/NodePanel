@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     name           TEXT NOT NULL,
     address        TEXT NOT NULL,
     master_key     TEXT NOT NULL,                     -- credential the panel uses to control the node
+    core_key       TEXT,                              -- PasarGuard core-management key (for the operator's panel)
     cert_pem       TEXT,                              -- node's pinned self-signed certificate (PEM)
     config_json    TEXT,                              -- last fixed Xray config pushed to the node
     grpc_port      INTEGER NOT NULL DEFAULT 62050,    -- PasarGuard-compat gRPC port the customer connects to

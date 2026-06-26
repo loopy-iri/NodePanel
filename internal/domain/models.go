@@ -28,6 +28,7 @@ type Node struct {
 	Name          string `json:"name"`
 	Address       string `json:"address"`
 	MasterKey     string `json:"-"`
+	CoreKey       string `json:"-"`
 	CertPEM       string `json:"-"`
 	ConfigJSON    string `json:"-"`
 	GRPCPort      int    `json:"grpc_port"`
