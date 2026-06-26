@@ -468,6 +468,13 @@ async function nodeDetailModal(nodeID) {
      <div class="field"><label>گواهی نود (Certificate)</label>
        <textarea id="dCert" rows="6" readonly spellcheck="false" style="font-family:ui-monospace,monospace;font-size:12px">${esc(d.cert_pem || "—")}</textarea></div>
      <p class="muted" style="font-size:12px;margin:0 0 8px">برای فروش، مشتری از کلید اشتراکش استفاده می‌کند. برای مدیریت هسته‌ی مشترک از پنل PasarGuard خودت، از Core key استفاده کن.</p>
+     <div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:6px">
+       <button class="btn sm ghost" id="cStart">شروع هسته</button>
+       <button class="btn sm ghost" id="cRestart">ری‌استارت هسته</button>
+       <button class="btn sm danger" id="cStop">توقف هسته</button>
+       <button class="btn sm ghost" id="cXray">تغییر نسخه Xray</button>
+       <button class="btn sm ghost" id="cUpd">آپدیت نود</button>
+     </div>
      <div class="actions">
        <button class="btn primary" id="dCfg">کانفیگ Xray</button>
        <button class="btn ghost" id="dEdit">ویرایش نود</button>
@@ -485,6 +492,31 @@ async function nodeDetailModal(nodeID) {
       root.querySelector("#dClose").onclick = closeModal;
       root.querySelector("#dCfg").onclick = () => { closeModal(); guard(() => nodeConfigModal(nodeID)); };
       root.querySelector("#dEdit").onclick = () => { closeModal(); nodeEditModal(d); };
+      const core = (action, msg) => guard(async () => {
+        await api(`/api/v1/nodes/${nodeID}/core/${action}`, { method: "POST" });
+        toast(msg);
+      });
+      root.querySelector("#cStart").onclick = () => core("start", "هسته شروع شد");
+      root.querySelector("#cRestart").onclick = () => core("restart", "هسته ری‌استارت شد");
+      root.querySelector("#cStop").onclick = () => confirmModal("هسته‌ی این نود متوقف شود؟ (همه‌ی مشتری‌ها قطع می‌شوند تا دوباره شروع شود)", async () => {
+        await api(`/api/v1/nodes/${nodeID}/core/stop`, { method: "POST" });
+      });
+      root.querySelector("#cXray").onclick = () => {
+        closeModal();
+        formModal("تغییر نسخه Xray-core", [{ name: "version", label: "نسخه (مثلاً v1.8.23 یا latest)", value: "latest" }], async (v) => {
+          toast("در حال دانلود و اعمال... ممکن است کمی طول بکشد");
+          await api(`/api/v1/nodes/${nodeID}/xray-version`, { method: "POST", body: JSON.stringify({ version: v.version || "latest" }) });
+          toast("نسخه‌ی Xray عوض و هسته ری‌استارت شد");
+        }, "اعمال");
+      };
+      root.querySelector("#cUpd").onclick = () => {
+        closeModal();
+        formModal("آپدیت باینری نود", [{ name: "version", label: "نسخه (خالی = آخرین)", placeholder: "latest" }], async (v) => {
+          toast("در حال دانلود و آپدیت نود... سرویس ری‌استارت می‌شود");
+          await api(`/api/v1/nodes/${nodeID}/update`, { method: "POST", body: JSON.stringify({ version: v.version || "latest" }) });
+          toast("نود در حال آپدیت و ری‌استارت است");
+        }, "آپدیت");
+      };
     }
   );
 }

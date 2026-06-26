@@ -249,6 +249,36 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/NodeHealth" }
         "502": { $ref: "#/components/responses/NodeError" }
+  /api/v1/nodes/{id}/core/{action}:
+    post:
+      tags: [nodes]
+      summary: Core lifecycle — action is start|stop|restart
+      parameters:
+        - { $ref: "#/components/parameters/IdParam" }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [start, stop, restart] } }
+      responses:
+        "200": { description: Done }
+        "502": { $ref: "#/components/responses/NodeError" }
+  /api/v1/nodes/{id}/xray-version:
+    post:
+      tags: [nodes]
+      summary: Switch the node's Xray-core version and restart the core
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { version: { type: string, example: "v1.8.23" } } } } }
+      responses:
+        "200": { description: Updated }
+        "502": { $ref: "#/components/responses/NodeError" }
+  /api/v1/nodes/{id}/update:
+    post:
+      tags: [nodes]
+      summary: Self-update the node binary (latest or given version) and restart the service
+      parameters: [{ $ref: "#/components/parameters/IdParam" }]
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { version: { type: string, example: "latest" } } } } }
+      responses:
+        "200": { description: Updating }
+        "502": { $ref: "#/components/responses/NodeError" }
   /api/v1/subscriptions/{id}/suspend:
     post:
       tags: [subscriptions]

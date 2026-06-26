@@ -68,6 +68,9 @@ func (a *API) Router() http.Handler {
 		r.Get("/nodes/{id}/config", a.getNodeConfig)
 		r.Put("/nodes/{id}/config", a.updateNodeConfig)
 		r.Get("/nodes/{id}/inbounds", a.getNodeInbounds)
+		r.Post("/nodes/{id}/core/{action}", a.coreLifecycle)
+		r.Post("/nodes/{id}/xray-version", a.setXrayVersion)
+		r.Post("/nodes/{id}/update", a.updateNodeBinary)
 
 		r.Post("/subscriptions/{id}/suspend", a.suspendSubscription)
 		r.Post("/subscriptions/{id}/resume", a.resumeSubscription)

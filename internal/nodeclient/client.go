@@ -165,6 +165,54 @@ func (c *Client) ApplyConfig(ctx context.Context, configJSON string) error {
 	return c.do(ctx, http.MethodPost, "/admin/config", strings.NewReader(configJSON), nil)
 }
 
+// CoreStart/CoreStop/CoreRestart control the shared Xray core lifecycle.
+func (c *Client) CoreStart(ctx context.Context) error {
+	return c.do(ctx, http.MethodPost, "/admin/core/start", nil, nil)
+}
+func (c *Client) CoreStop(ctx context.Context) error {
+	return c.do(ctx, http.MethodPost, "/admin/core/stop", nil, nil)
+}
+func (c *Client) CoreRestart(ctx context.Context) error {
+	return c.do(ctx, http.MethodPost, "/admin/core/restart", nil, nil)
+}
+
+// SetXrayVersion downloads the given Xray-core version on the node and restarts
+// the core. Uses a long timeout because the node downloads a release.
+func (c *Client) SetXrayVersion(ctx context.Context, version string) error {
+	return c.postLong(ctx, "/admin/core/xray-version", map[string]string{"version": version})
+}
+
+// UpdateNode downloads the given NodeAgent release on the node and restarts the
+// service.
+func (c *Client) UpdateNode(ctx context.Context, version string) error {
+	return c.postLong(ctx, "/admin/node/update", map[string]string{"version": version})
+}
+
+// postLong performs a JSON POST with a long timeout (node-side downloads).
+func (c *Client) postLong(ctx context.Context, path string, body any) error {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-API-Key", c.masterKey)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 180 * time.Second, Transport: c.http.Transport}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("node request POST %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("node POST %s: status %d: %s", path, resp.StatusCode, strings.TrimSpace(string(msg)))
+	}
+	return nil
+}
+
 // GetConfig returns the node's currently running core config as raw JSON.
 func (c *Client) GetConfig(ctx context.Context) (json.RawMessage, error) {
 	return c.getRaw(ctx, "/admin/config")

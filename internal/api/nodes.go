@@ -211,6 +211,75 @@ func servicePortOf(address string) int {
 	return 8090
 }
 
+// coreLifecycle handles start/stop/restart of a node's shared core.
+func (a *API) coreLifecycle(w http.ResponseWriter, r *http.Request) {
+	node, err := a.store.GetNode(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "node not found")
+		return
+	}
+	action := chi.URLParam(r, "action")
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	cl := a.clientForNode(node)
+	switch action {
+	case "start":
+		err = cl.CoreStart(ctx)
+	case "stop":
+		err = cl.CoreStop(ctx)
+	case "restart":
+		err = cl.CoreRestart(ctx)
+	default:
+		writeError(w, http.StatusBadRequest, "unknown action")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "node error: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": action})
+}
+
+type versionRequest struct {
+	Version string `json:"version"`
+}
+
+// setXrayVersion asks the node to switch its Xray-core version and restart.
+func (a *API) setXrayVersion(w http.ResponseWriter, r *http.Request) {
+	node, err := a.store.GetNode(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "node not found")
+		return
+	}
+	var req versionRequest
+	_ = decodeJSON(r, &req)
+	ctx, cancel := context.WithTimeout(r.Context(), 190*time.Second)
+	defer cancel()
+	if err := a.clientForNode(node).SetXrayVersion(ctx, req.Version); err != nil {
+		writeError(w, http.StatusBadGateway, "node error: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "xray updated"})
+}
+
+// updateNodeBinary asks the node to self-update its binary and restart.
+func (a *API) updateNodeBinary(w http.ResponseWriter, r *http.Request) {
+	node, err := a.store.GetNode(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "node not found")
+		return
+	}
+	var req versionRequest
+	_ = decodeJSON(r, &req)
+	ctx, cancel := context.WithTimeout(r.Context(), 190*time.Second)
+	defer cancel()
+	if err := a.clientForNode(node).UpdateNode(ctx, req.Version); err != nil {
+		writeError(w, http.StatusBadGateway, "node error: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updating"})
+}
+
 func (a *API) deleteNode(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := a.store.DeleteNode(id); err != nil {
