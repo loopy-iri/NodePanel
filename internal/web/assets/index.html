@@ -6,7 +6,8 @@
   <title>PasarGuard Panel</title>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 </head>
 <body>
   <div class="app">
@@ -15,25 +16,31 @@
       <nav id="nav"></nav>
       <div class="spacer"></div>
       <button class="nav-item" id="docsBtn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16M4 12h16M4 19h10"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 5h16M4 12h16M4 19h10"/></svg>
         مستندات API
       </button>
     </aside>
+    <div class="backdrop" id="backdrop"></div>
 
     <div class="main">
       <header class="topbar">
-        <button class="btn ghost hamburger" id="hamburger" aria-label="menu">☰</button>
+        <button class="btn ghost hamburger" id="hamburger" aria-label="باز و بسته کردن منو">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
         <h1 id="pageTitle">داشبورد</h1>
         <div class="spacer"></div>
-        <div class="theme-dots" id="themeDots"></div>
-        <button class="btn sm ghost" id="tokenBtn">توکن</button>
+        <div class="theme-dots" id="themeDots" role="group" aria-label="انتخاب تم"></div>
+        <button class="btn sm ghost" id="tokenBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px"><path d="M21 2l-2 2m-7.6 7.6a5.5 5.5 0 1 1-7.78 7.78 5.5 5.5 0 0 1 7.78-7.78zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+          توکن
+        </button>
       </header>
       <main class="content" id="view"></main>
     </div>
   </div>
 
   <div id="modalRoot"></div>
-  <div class="toast-wrap" id="toastWrap"></div>
+  <div class="toast-wrap" id="toastWrap" aria-live="polite"></div>
   <script src="/app.js"></script>
 </body>
 </html>

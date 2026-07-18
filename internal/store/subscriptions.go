@@ -140,6 +140,24 @@ func (s *Store) RecordUsage(tenantID, nodeID string, periodID uint64, usedCumula
 	return err
 }
 
+// PruneHistory deletes usage samples and webhook delivery logs older than the
+// retention window, so the two append-only tables don't grow without bound.
+func (s *Store) PruneHistory(retention time.Duration) error {
+	cutoff := time.Now().Add(-retention).Unix()
+	if _, err := s.db.Exec(`DELETE FROM usage_records WHERE ts < ?`, cutoff); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`DELETE FROM webhook_deliveries WHERE ts < ?`, cutoff)
+	return err
+}
+
+// CountSubscriptionsByNode returns how many subscriptions reference a node.
+func (s *Store) CountSubscriptionsByNode(nodeID string) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM subscriptions WHERE node_id = ?`, nodeID).Scan(&n)
+	return n, err
+}
+
 // CreateAPIKey stores the hash of a customer key (the raw key is shown once).
 func (s *Store) CreateAPIKey(customerID, keyHash, prefix string) error {
 	_, err := s.db.Exec(

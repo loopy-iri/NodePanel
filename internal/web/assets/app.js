@@ -16,7 +16,7 @@ function applyTheme(id) {
 function renderThemeDots() {
   const cur = localStorage.getItem("pg_theme") || "light";
   document.getElementById("themeDots").innerHTML = THEMES.map(
-    (t) => `<button data-theme-btn="${t.id}" class="${t.id === cur ? "sel" : ""}" style="background:${t.color}" title="${t.id}"></button>`
+    (t) => `<button data-theme-btn="${t.id}" class="${t.id === cur ? "sel" : ""}" style="background:${t.color}" title="${t.id}" aria-label="تم ${t.id}"></button>`
   ).join("");
 }
 
@@ -80,9 +80,11 @@ function toast(msg, type = "ok") {
 }
 function modal(title, bodyHTML, onMount) {
   const root = document.getElementById("modalRoot");
-  root.innerHTML = `<div class="modal-bg"><div class="modal"><h3>${title}</h3><div>${bodyHTML}</div></div></div>`;
+  root.innerHTML = `<div class="modal-bg"><div class="modal" role="dialog" aria-modal="true"><h3>${title}</h3><div>${bodyHTML}</div></div></div>`;
   const bg = root.firstElementChild;
   bg.addEventListener("click", (e) => { if (e.target === bg) closeModal(); });
+  const onKey = (e) => { if (e.key === "Escape") { closeModal(); document.removeEventListener("keydown", onKey); } };
+  document.addEventListener("keydown", onKey);
   if (onMount) onMount(root);
 }
 const closeModal = () => (document.getElementById("modalRoot").innerHTML = "");
@@ -112,9 +114,9 @@ const badge = (s) => `<span class="badge ${esc(s)}">${STATUS_FA[s] || esc(s)}</s
 function progress(used, quota) {
   const pct = quota > 0 ? Math.min(100, Math.round((used / quota) * 100)) : (used > 0 ? 100 : 0);
   const col = pct >= 100 ? "var(--danger)" : pct >= 80 ? "var(--warn)" : "var(--ok)";
-  return `<div style="background:var(--surface-2);border-radius:999px;height:8px;overflow:hidden;min-width:120px">
-    <div style="width:${pct}%;height:100%;background:${col}"></div></div>
-    <div class="muted" style="font-size:12px;margin-top:3px">${fmtBytes(used)} / ${fmtBytes(quota)} (${pct}%)</div>`;
+  return `<div style="background:var(--surface-2);border-radius:999px;height:7px;overflow:hidden;min-width:120px">
+    <div style="width:${pct}%;height:100%;border-radius:999px;background:${col};transition:width .3s ease"></div></div>
+    <div class="muted" style="font-size:12px;margin-top:4px;font-variant-numeric:tabular-nums">${fmtBytes(used)} / ${fmtBytes(quota)} (${pct}%)</div>`;
 }
 
 /* ===================== Navigation / router ===================== */
@@ -174,8 +176,9 @@ function boot() {
   });
   document.getElementById("tokenBtn").onclick = openTokenModal;
   document.getElementById("docsBtn").onclick = () => window.open("/docs", "_blank");
-  document.getElementById("hamburger").onclick = () =>
-    document.getElementById("sidebar").classList.toggle("open");
+  const sidebar = document.getElementById("sidebar");
+  document.getElementById("hamburger").onclick = () => sidebar.classList.toggle("open");
+  document.getElementById("backdrop").onclick = () => sidebar.classList.remove("open");
   window.addEventListener("hashchange", route);
   if (!getToken()) openTokenModal();
   route();
@@ -462,8 +465,8 @@ async function nodeDetailModal(nodeID) {
      ${field("آدرس gRPC (برای پنل PasarGuard)", d.grpc_address, "cpGrpc")}
      ${field("پورت gRPC", d.grpc_port)}
      ${field("پروتکل", d.protocol)}
-     ${field("🔑 Master key (پنل فروش / مدیریت کامل)", d.master_key || "—", "cpMaster")}
-     ${field("🔑 Core key (پنل PasarGuard تو / کانفیگ هسته)", d.core_key || "— (تنظیم نشده)", "cpCore")}
+     ${field("Master key (پنل فروش / مدیریت کامل)", d.master_key || "—", "cpMaster")}
+     ${field("Core key (پنل PasarGuard تو / کانفیگ هسته)", d.core_key || "— (تنظیم نشده)", "cpCore")}
      ${field("وضعیت", (STATUS_FA[d.status] || d.status) + (d.version ? " — " + d.version : ""))}
      <div class="field"><label>گواهی نود (Certificate)</label>
        <textarea id="dCert" rows="6" readonly spellcheck="false" style="font-family:ui-monospace,monospace;font-size:12px">${esc(d.cert_pem || "—")}</textarea></div>
@@ -926,7 +929,7 @@ async function connectionModal(subID) {
   modal(
     "اطلاعات اتصال مشتری",
     `<p class="muted" style="font-size:12.5px;margin:0 0 10px">این مقادیر را به مشتری بدهید تا نود را در پنل PasarGuard خودش اضافه کند. کلید مشتری فقط هنگام ساخت اشتراک نمایش داده می‌شود.</p>
-     ${info.sub_token ? `<div class="field"><label>🔗 لینک اشتراک مشتری (کانفیگ + وضعیت حجم/انقضا)</label>
+     ${info.sub_token ? `<div class="field"><label>لینک اشتراک مشتری (کانفیگ + وضعیت حجم/انقضا)</label>
        <div class="row" style="gap:6px;align-items:stretch"><input id="connSub" readonly value="${esc(location.origin + "/sub/" + info.sub_token)}" style="flex:1" /><button class="btn ghost" id="connSubOpen">باز</button></div></div>` : ""}
      <div class="field"><label>آدرس gRPC</label><input id="connAddr" readonly value="${esc(info.grpc_address)}" /></div>
      <div class="field"><label>پروتکل</label><input readonly value="${esc(info.protocol)}" /></div>

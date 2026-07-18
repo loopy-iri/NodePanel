@@ -55,8 +55,17 @@ func NewDispatcher(store Store) *Dispatcher {
 	}
 }
 
+// Delivery retry policy: an endpoint that fails gets retried with a short
+// backoff before the failure is recorded. Kept small so Emit (called from the
+// collector loop) never blocks for long.
+const (
+	maxAttempts  = 3
+	retryBackoff = 2 * time.Second
+)
+
 // Emit delivers an event to every active endpoint subscribed to it. Delivery is
-// best-effort and recorded; failures are logged, not fatal.
+// best-effort and recorded; failures are retried up to maxAttempts, then logged,
+// not fatal.
 func (d *Dispatcher) Emit(ctx context.Context, eventType string, data any) {
 	endpoints, err := d.store.ListActiveWebhooks()
 	if err != nil {
@@ -77,8 +86,25 @@ func (d *Dispatcher) Emit(ctx context.Context, eventType string, data any) {
 		if !subscribed(ep.Events, eventType) {
 			continue
 		}
-		status := d.deliver(ctx, ep, eventType, body)
-		_ = d.store.RecordWebhookDelivery(ep.ID, eventType, string(body), status, 1)
+		status, attempts := d.deliverWithRetry(ctx, ep, eventType, body)
+		_ = d.store.RecordWebhookDelivery(ep.ID, eventType, string(body), status, attempts)
+	}
+}
+
+// deliverWithRetry attempts delivery up to maxAttempts times, backing off
+// between attempts. Returns the final status and the number of attempts made.
+func (d *Dispatcher) deliverWithRetry(ctx context.Context, ep domain.WebhookEndpoint, eventType string, body []byte) (string, int) {
+	var status string
+	for attempt := 1; ; attempt++ {
+		status = d.deliver(ctx, ep, eventType, body)
+		if status == "delivered" || attempt >= maxAttempts {
+			return status, attempt
+		}
+		select {
+		case <-ctx.Done():
+			return status, attempt
+		case <-time.After(retryBackoff):
+		}
 	}
 }
 

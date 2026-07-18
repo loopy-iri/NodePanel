@@ -10,15 +10,22 @@ import (
 	"github.com/pasarguard/panel/internal/webhook"
 )
 
+// historyRetention is how long usage samples and webhook delivery logs are
+// kept before the hourly prune removes them.
+const historyRetention = 30 * 24 * time.Hour
+
 // RunUsageCollector periodically pulls absolute cumulative usage for each active
 // subscription from its node and stores it. This is the panel's source of truth
-// for billing exposure; enforcement itself happens locally on the node.
+// for billing exposure; enforcement itself happens locally on the node. It also
+// prunes old usage/delivery history once an hour.
 func (a *API) RunUsageCollector(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	prune := time.NewTicker(time.Hour)
+	defer prune.Stop()
 
 	for {
 		select {
@@ -26,6 +33,10 @@ func (a *API) RunUsageCollector(ctx context.Context, interval time.Duration) {
 			return
 		case <-ticker.C:
 			a.collectUsageOnce(ctx)
+		case <-prune.C:
+			if err := a.store.PruneHistory(historyRetention); err != nil {
+				log.Printf("usage collector: prune history: %v", err)
+			}
 		}
 	}
 }

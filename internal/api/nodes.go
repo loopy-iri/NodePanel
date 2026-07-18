@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -92,11 +93,10 @@ func (a *API) listNodes(w http.ResponseWriter, _ *http.Request) {
 
 func (a *API) nodeHealth(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	node, err := a.getNodeOr404(w, id)
+	node, _ := a.getNodeOr404(w, id)
 	if node == nil {
 		return
 	}
-	_ = err
 
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
@@ -280,8 +280,16 @@ func (a *API) updateNodeBinary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updating"})
 }
 
+// deleteNode removes a node. Nodes that still have subscriptions cannot be
+// deleted (delete the subscriptions first) — otherwise the FK reference would
+// surface as a raw 500 and, worse, live tenants would be left unmanaged.
 func (a *API) deleteNode(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if n, err := a.store.CountSubscriptionsByNode(id); err == nil && n > 0 {
+		writeError(w, http.StatusConflict,
+			fmt.Sprintf("node has %d subscription(s); delete them first", n))
+		return
+	}
 	if err := a.store.DeleteNode(id); err != nil {
 		writeNotFoundOr500(w, err)
 		return

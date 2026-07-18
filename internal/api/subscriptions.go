@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -76,6 +77,16 @@ func (a *API) createSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If persisting fails after the tenant was provisioned, delete it from the
+	// node again so no orphaned tenant is left behind.
+	rollbackTenant := func() {
+		rctx, rcancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer rcancel()
+		if err := a.clientForNode(node).Delete(rctx, tenantID); err != nil {
+			log.Printf("subscription rollback: delete tenant %s on node %s: %v", tenantID, node.ID, err)
+		}
+	}
+
 	sub := &domain.Subscription{
 		CustomerID:       customer.ID,
 		PlanID:           plan.ID,
@@ -90,10 +101,13 @@ func (a *API) createSubscription(w http.ResponseWriter, r *http.Request) {
 		CreditLimitBytes: req.CreditLimitBytes,
 	}
 	if err := a.store.CreateSubscription(sub); err != nil {
+		rollbackTenant()
 		writeError(w, http.StatusInternalServerError, "failed to store subscription")
 		return
 	}
 	if err := a.store.CreateAPIKey(customer.ID, hashKey(rawKey), keyPrefix(rawKey)); err != nil {
+		rollbackTenant()
+		_ = a.store.DeleteSubscription(sub.ID)
 		writeError(w, http.StatusInternalServerError, "failed to store api key")
 		return
 	}
@@ -154,7 +168,6 @@ func (a *API) subscriptionConnection(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	inbounds := a.resolveInbounds(ctx, node)
-	_ = sub
 	writeJSON(w, http.StatusOK, connectionInfoResponse{
 		NodeName:    node.Name,
 		GRPCAddress: grpcAddressFor(node.Address, node.GRPCPort),
