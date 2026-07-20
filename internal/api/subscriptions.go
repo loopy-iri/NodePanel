@@ -153,6 +153,7 @@ type connectionInfoResponse struct {
 	Inbounds    json.RawMessage `json:"inbounds"`
 	SubToken    string          `json:"sub_token"`
 	Note        string          `json:"note"`
+	HostInfo    string          `json:"host_info,omitempty"`
 }
 
 // subscriptionConnection returns everything a customer needs to add this node in
@@ -176,6 +177,7 @@ func (a *API) subscriptionConnection(w http.ResponseWriter, r *http.Request) {
 		Inbounds:    inbounds,
 		SubToken:    sub.SubToken,
 		Note:        "Add this node in your PasarGuard panel with the gRPC address, protocol grpc, the certificate, and your customer API key. Replicate the inbound(s) exactly (port/protocol/network/TLS/SNI) so user links work.",
+		HostInfo:    node.HostInfo,
 	})
 }
 

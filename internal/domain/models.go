@@ -31,6 +31,7 @@ type Node struct {
 	CoreKey       string `json:"-"`
 	CertPEM       string `json:"-"`
 	ConfigJSON    string `json:"-"`
+	HostInfo      string `json:"host_info,omitempty"`
 	GRPCPort      int    `json:"grpc_port"`
 	Status        string `json:"status"`
 	Version       string `json:"version,omitempty"`

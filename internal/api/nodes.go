@@ -30,6 +30,7 @@ type registerNodeRequest struct {
 	CertPEM   string          `json:"cert_pem"`         // node's self-signed cert (PEM) to pin
 	GRPCPort  int             `json:"grpc_port"`        // PasarGuard-compat gRPC port (default 62050)
 	Config    json.RawMessage `json:"config,omitempty"` // optional fixed Xray config to push
+	HostInfo  string          `json:"host_info"`
 }
 
 func (a *API) registerNode(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +53,7 @@ func (a *API) registerNode(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	node, err := a.store.CreateNode(req.Name, req.Address, req.MasterKey, req.CertPEM, string(req.Config), req.GRPCPort, req.CoreKey)
+	node, err := a.store.CreateNode(req.Name, req.Address, req.MasterKey, req.CertPEM, string(req.Config), req.GRPCPort, req.CoreKey, req.HostInfo)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create node")
 		return
@@ -139,6 +140,7 @@ type nodeDetailResponse struct {
 	Version     string `json:"version,omitempty"`
 	LastSeenAt  int64  `json:"last_seen_at,omitempty"`
 	CreatedAt   int64  `json:"created_at"`
+	HostInfo    string `json:"host_info"`
 }
 
 // getNodeDetail returns a node's full connection info (host, service/gRPC ports,
@@ -169,6 +171,7 @@ func (a *API) getNodeDetail(w http.ResponseWriter, r *http.Request) {
 		Version:     node.Version,
 		LastSeenAt:  node.LastSeenAt,
 		CreatedAt:   node.CreatedAt,
+		HostInfo:    node.HostInfo,
 	})
 }
 
@@ -179,6 +182,7 @@ type updateNodeRequest struct {
 	MasterKey string `json:"master_key"` // empty keeps existing
 	CoreKey   string `json:"core_key"`
 	CertPEM   string `json:"cert_pem"` // empty keeps existing
+	HostInfo  string `json:"host_info"`
 }
 
 // updateNode edits a node's name/address/ports/keys/cert.
@@ -193,7 +197,7 @@ func (a *API) updateNode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name and address are required")
 		return
 	}
-	if err := a.store.UpdateNode(id, req.Name, req.Address, req.GRPCPort, req.MasterKey, req.CoreKey, req.CertPEM); err != nil {
+	if err := a.store.UpdateNode(id, req.Name, req.Address, req.GRPCPort, req.MasterKey, req.CoreKey, req.CertPEM, req.HostInfo); err != nil {
 		writeNotFoundOr500(w, err)
 		return
 	}

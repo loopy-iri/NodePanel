@@ -12,25 +12,18 @@ import (
 // ErrNotFound is returned when a row does not exist.
 var ErrNotFound = errors.New("not found")
 
-func (s *Store) CreateNode(name, address, masterKey, certPEM, configJSON string, grpcPort int, coreKey string) (*domain.Node, error) {
+func (s *Store) CreateNode(name, address, masterKey, certPEM, configJSON string, grpcPort int, coreKey, hostInfo string) (*domain.Node, error) {
 	if grpcPort <= 0 {
 		grpcPort = 62050
 	}
 	n := &domain.Node{
-		ID:         uuid.NewString(),
-		Name:       name,
-		Address:    address,
-		MasterKey:  masterKey,
-		CoreKey:    coreKey,
-		CertPEM:    certPEM,
-		ConfigJSON: configJSON,
-		GRPCPort:   grpcPort,
-		Status:     "unknown",
-		CreatedAt:  time.Now().Unix(),
+		ID: uuid.NewString(), Name: name, Address: address, MasterKey: masterKey,
+		CoreKey: coreKey, CertPEM: certPEM, ConfigJSON: configJSON, HostInfo: hostInfo,
+		GRPCPort: grpcPort, Status: "unknown", CreatedAt: time.Now().Unix(),
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO nodes (id, name, address, master_key, core_key, cert_pem, config_json, grpc_port, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		n.ID, n.Name, n.Address, n.MasterKey, n.CoreKey, n.CertPEM, n.ConfigJSON, n.GRPCPort, n.Status, n.CreatedAt,
+		`INSERT INTO nodes (id, name, address, master_key, core_key, cert_pem, config_json, host_info, grpc_port, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		n.ID, n.Name, n.Address, n.MasterKey, n.CoreKey, n.CertPEM, n.ConfigJSON, n.HostInfo, n.GRPCPort, n.Status, n.CreatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -40,7 +33,7 @@ func (s *Store) CreateNode(name, address, masterKey, certPEM, configJSON string,
 
 // UpdateNode updates the editable fields of a node (name/address/grpc_port and
 // the credentials/cert). Empty master_key/cert keep the existing values.
-func (s *Store) UpdateNode(id, name, address string, grpcPort int, masterKey, coreKey, certPEM string) error {
+func (s *Store) UpdateNode(id, name, address string, grpcPort int, masterKey, coreKey, certPEM, hostInfo string) error {
 	cur, err := s.GetNode(id)
 	if err != nil {
 		return err
@@ -55,29 +48,35 @@ func (s *Store) UpdateNode(id, name, address string, grpcPort int, masterKey, co
 		certPEM = cur.CertPEM
 	}
 	_, err = s.db.Exec(
-		`UPDATE nodes SET name = ?, address = ?, grpc_port = ?, master_key = ?, core_key = ?, cert_pem = ? WHERE id = ?`,
-		name, address, grpcPort, masterKey, coreKey, certPEM, id,
+		`UPDATE nodes SET name = ?, address = ?, grpc_port = ?, master_key = ?, core_key = ?, cert_pem = ?, host_info = ? WHERE id = ?`,
+		name, address, grpcPort, masterKey, coreKey, certPEM, hostInfo, id,
 	)
+	return err
+}
+
+func (s *Store) SetNodeHostInfo(id, hostInfo string) error {
+	_, err := s.db.Exec(`UPDATE nodes SET host_info = ? WHERE id = ?`, hostInfo, id)
 	return err
 }
 
 func scanNode(row interface{ Scan(...any) error }) (*domain.Node, error) {
 	var n domain.Node
-	var coreKey, certPEM, configJSON, version sql.NullString
+	var coreKey, certPEM, configJSON, hostInfo, version sql.NullString
 	var lastSeen sql.NullInt64
-	err := row.Scan(&n.ID, &n.Name, &n.Address, &n.MasterKey, &coreKey, &certPEM, &configJSON, &n.GRPCPort, &n.Status, &version, &n.CapacityScore, &lastSeen, &n.CreatedAt)
+	err := row.Scan(&n.ID, &n.Name, &n.Address, &n.MasterKey, &coreKey, &certPEM, &configJSON, &hostInfo, &n.GRPCPort, &n.Status, &version, &n.CapacityScore, &lastSeen, &n.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
 	n.CoreKey = coreKey.String
 	n.CertPEM = certPEM.String
 	n.ConfigJSON = configJSON.String
+	n.HostInfo = hostInfo.String
 	n.Version = version.String
 	n.LastSeenAt = lastSeen.Int64
 	return &n, nil
 }
 
-const nodeColumns = `id, name, address, master_key, core_key, cert_pem, config_json, grpc_port, status, version, capacity_score, last_seen_at, created_at`
+const nodeColumns = `id, name, address, master_key, core_key, cert_pem, config_json, host_info, grpc_port, status, version, capacity_score, last_seen_at, created_at`
 
 func (s *Store) GetNode(id string) (*domain.Node, error) {
 	row := s.db.QueryRow(`SELECT `+nodeColumns+` FROM nodes WHERE id = ?`, id)
