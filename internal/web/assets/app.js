@@ -468,6 +468,8 @@ async function nodeDetailModal(nodeID) {
      ${field("Master key (پنل فروش / مدیریت کامل)", d.master_key || "—", "cpMaster")}
      ${field("Core key (پنل PasarGuard تو / کانفیگ هسته)", d.core_key || "— (تنظیم نشده)", "cpCore")}
      ${field("وضعیت", (STATUS_FA[d.status] || d.status) + (d.version ? " — " + d.version : ""))}
+     <div class="field"><label>اطلاعات هاست (برای کانفیگ مشتری — در ربات به خریدار نمایش داده می‌شود)</label>
+       <textarea id="dHost" rows="3" readonly spellcheck="false" style="font-family:ui-monospace,monospace;font-size:12px">${esc(d.host_info || "— (تنظیم نشده)")}</textarea></div>
      <div class="field"><label>گواهی نود (Certificate)</label>
        <textarea id="dCert" rows="6" readonly spellcheck="false" style="font-family:ui-monospace,monospace;font-size:12px">${esc(d.cert_pem || "—")}</textarea></div>
      <p class="muted" style="font-size:12px;margin:0 0 8px">برای فروش، مشتری از کلید اشتراکش استفاده می‌کند. برای مدیریت هسته‌ی مشترک از پنل PasarGuard خودت، از Core key استفاده کن.</p>
@@ -533,11 +535,12 @@ function nodeEditModal(d) {
       { name: "address", label: "آدرس", value: d.address },
       { name: "grpc_port", label: "پورت gRPC", type: "number", value: String(d.grpc_port || 62050) },
       { name: "core_key", label: "Core key (برای مدیریت هسته از پنل PasarGuard تو)", value: d.core_key || "" },
+      { name: "host_info", label: "اطلاعات هاست (به خریدار در ربات نمایش داده می‌شود؛ خالی = حذف)", type: "textarea", value: d.host_info || "", hint: "مثلاً: SNI، دامنه‌ی CDN یا نکته‌ی کانفیگ که مشتری برای کاربرهایش لازم دارد." },
       { name: "master_key", label: "Master key (خالی = بدون تغییر)", type: "password", hint: "فقط اگر کلید مستر نود را عوض کرده‌ای پر کن." },
       { name: "cert_pem", label: "گواهی نود (PEM، خالی = بدون تغییر)", type: "textarea" },
     ],
     async (v) => {
-      const body = { name: v.name, address: v.address, core_key: v.core_key };
+      const body = { name: v.name, address: v.address, core_key: v.core_key, host_info: v.host_info };
       if (v.grpc_port) body.grpc_port = parseInt(v.grpc_port, 10);
       if (v.master_key) body.master_key = v.master_key;
       if (v.cert_pem) body.cert_pem = v.cert_pem;
