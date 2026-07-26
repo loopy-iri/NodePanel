@@ -83,9 +83,15 @@ CREATE INDEX IF NOT EXISTS idx_tenants_customer ON tenants(customer_id);
 CREATE INDEX IF NOT EXISTS idx_tenants_node ON tenants(node_id);
 
 -- Absolute cumulative usage per tenant per node per period (idempotent: take max).
+--
+-- tenant_id is the tenant id ON THE NODE, not a row in the local tenants table,
+-- so it carries no foreign key. It used to reference tenants(id): since nothing
+-- ever inserts into tenants, every insert here failed the FK check and usage
+-- history was silently always empty. See migrateUsageRecords for the rebuild
+-- applied to databases created with the old definition.
 CREATE TABLE IF NOT EXISTS usage_records (
     id                    TEXT PRIMARY KEY,
-    tenant_id             TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    tenant_id             TEXT NOT NULL,
     node_id               TEXT NOT NULL,
     period_id             INTEGER NOT NULL,
     ts                    INTEGER NOT NULL,

@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -124,6 +125,30 @@ func (s *Store) SetSubscriptionQuota(id string, quotaBytes, creditLimitBytes, en
 	return err
 }
 
+// AddSubscriptionQuota adds bytes to a subscription's quota in ONE statement
+// and returns the resulting quota.
+//
+// The increment must happen in SQL, not as read-modify-write in the handler:
+// two concurrent top-ups that both read the old quota would each write
+// old+their_own_delta, silently losing one of the two purchases.
+// A negative addBytes is allowed so a caller can undo its own increment when a
+// downstream step fails; the result is clamped at zero.
+func (s *Store) AddSubscriptionQuota(id string, addBytes int64) (int64, error) {
+	if addBytes == 0 {
+		return 0, fmt.Errorf("addBytes must be non-zero")
+	}
+	if _, err := s.db.Exec(
+		`UPDATE subscriptions SET quota_bytes = MAX(0, quota_bytes + ?) WHERE id = ?`, addBytes, id,
+	); err != nil {
+		return 0, err
+	}
+	var quota int64
+	if err := s.db.QueryRow(`SELECT quota_bytes FROM subscriptions WHERE id = ?`, id).Scan(&quota); err != nil {
+		return 0, err
+	}
+	return quota, nil
+}
+
 // UpdateSubscriptionNotified records the highest usage threshold already sent.
 func (s *Store) UpdateSubscriptionNotified(id string, level int) error {
 	_, err := s.db.Exec(`UPDATE subscriptions SET notified_threshold = ? WHERE id = ?`, level, id)
@@ -138,6 +163,14 @@ func (s *Store) RecordUsage(tenantID, nodeID string, periodID uint64, usedCumula
 		uuid.NewString(), tenantID, nodeID, periodID, time.Now().Unix(), usedCumulative,
 	)
 	return err
+}
+
+// CountUsageRecords returns how many usage samples are stored. Used by tests to
+// prove the history table is actually written to.
+func (s *Store) CountUsageRecords() (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM usage_records`).Scan(&n)
+	return n, err
 }
 
 // PruneHistory deletes usage samples and webhook delivery logs older than the

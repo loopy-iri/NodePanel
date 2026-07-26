@@ -36,7 +36,7 @@ sudo bash scripts/pg-panel.sh install --port 8080
 
 ### اجرای محلی (توسعه)
 ```bash
-$env:PANEL_API_TOKEN="dev-token"; go run ./cmd/panel
+$env:PANEL_API_TOKEN="local-dev-token-please-change-me"; go run ./cmd/panel
 # UI:   http://localhost:8080/
 # Docs: http://localhost:8080/docs
 ```
@@ -47,8 +47,16 @@ $env:PANEL_API_TOKEN="dev-token"; go run ./cmd/panel
 |---|---|---|
 | `PANEL_HTTP_ADDR` | `:8080` | آدرس گوش‌دادن |
 | `PANEL_DB_PATH` | `panel.db` | مسیر SQLite |
-| `PANEL_API_TOKEN` | `dev-token-change-me` | توکن Bearer برای `/api/*` |
+| `PANEL_API_TOKEN` | **الزامی** | توکن Bearer برای `/api/*` — حداقل ۲۴ کاراکتر |
 | `PANEL_COLLECT_INTERVAL` | `30s` | بازه‌ی usage collector |
+
+`PANEL_API_TOKEN` پیش‌فرض ندارد و پنل بدون آن بالا نمی‌آید. این توکن تنها لایه‌ی
+احراز هویت جلوی APIای است که `master_key`، `core_key` و گواهی نودها را برمی‌گرداند،
+پس یک مقدار تصادفی بسازید:
+
+```bash
+openssl rand -hex 32
+```
 
 ## ساختار
 ```

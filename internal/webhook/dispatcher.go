@@ -15,6 +15,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pasarguard/panel/internal/domain"
@@ -42,16 +43,31 @@ type Envelope struct {
 	Data      any    `json:"data"`
 }
 
-// Dispatcher sends signed events to all subscribed endpoints.
+// Dispatcher sends signed events to all subscribed endpoints. Deliveries run on
+// a background worker: Emit only enqueues.
 type Dispatcher struct {
 	store Store
 	http  *http.Client
+	queue chan job
+	once  sync.Once
 }
+
+// job is one queued delivery. The body is rendered at Emit time so the event
+// reflects the state that produced it, not the state when it is finally sent.
+type job struct {
+	event string
+	body  []byte
+}
+
+// queueDepth bounds memory if a consumer is down for a long time. Beyond it the
+// oldest events are dropped with a log line rather than blocking the caller.
+const queueDepth = 512
 
 func NewDispatcher(store Store) *Dispatcher {
 	return &Dispatcher{
 		store: store,
 		http:  &http.Client{Timeout: 10 * time.Second},
+		queue: make(chan job, queueDepth),
 	}
 }
 
@@ -63,33 +79,65 @@ const (
 	retryBackoff = 2 * time.Second
 )
 
-// Emit delivers an event to every active endpoint subscribed to it. Delivery is
-// best-effort and recorded; failures are retried up to maxAttempts, then logged,
-// not fatal.
-func (d *Dispatcher) Emit(ctx context.Context, eventType string, data any) {
-	endpoints, err := d.store.ListActiveWebhooks()
-	if err != nil {
-		log.Printf("webhook: list endpoints: %v", err)
-		return
-	}
-	if len(endpoints) == 0 {
-		return
-	}
-
+// Emit queues an event for delivery to every subscribed endpoint and returns
+// immediately.
+//
+// It must not block its caller. Emit is called from inside the usage-collector
+// loop and from HTTP handlers before they respond; delivering inline meant one
+// unreachable consumer stalled the caller for the whole retry budget (~34s per
+// endpoint). In the collector that starved usage collection for every other
+// subscription — so an over-quota tenant kept running — and in a handler it
+// hung an operator action that had in fact already taken effect on the node.
+//
+// The passed context is deliberately NOT used for delivery: it belongs to the
+// request or poll that produced the event and is cancelled as soon as that
+// finishes, which would cancel the very delivery it just queued.
+func (d *Dispatcher) Emit(_ context.Context, eventType string, data any) {
 	body, err := json.Marshal(Envelope{Type: eventType, Timestamp: time.Now().Unix(), Data: data})
 	if err != nil {
 		log.Printf("webhook: marshal %s: %v", eventType, err)
 		return
 	}
+	d.once.Do(func() { go d.run() })
 
-	for _, ep := range endpoints {
-		if !subscribed(ep.Events, eventType) {
-			continue
-		}
-		status, attempts := d.deliverWithRetry(ctx, ep, eventType, body)
-		_ = d.store.RecordWebhookDelivery(ep.ID, eventType, string(body), status, attempts)
+	select {
+	case d.queue <- job{event: eventType, body: body}:
+	default:
+		log.Printf("webhook: delivery queue full (%d); dropping %s", queueDepth, eventType)
 	}
 }
+
+// run drains the queue, delivering one event at a time. A single worker keeps
+// ordering and avoids stampeding a struggling consumer.
+func (d *Dispatcher) run() {
+	for j := range d.queue {
+		d.dispatch(j)
+	}
+}
+
+// dispatch delivers one queued event to every subscribed endpoint, with its own
+// timeout so a wedged consumer cannot occupy the worker indefinitely.
+func (d *Dispatcher) dispatch(j job) {
+	endpoints, err := d.store.ListActiveWebhooks()
+	if err != nil {
+		log.Printf("webhook: list endpoints: %v", err)
+		return
+	}
+	for _, ep := range endpoints {
+		if !subscribed(ep.Events, j.event) {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), deliveryBudget)
+		status, attempts := d.deliverWithRetry(ctx, ep, j.event, j.body)
+		cancel()
+		if err := d.store.RecordWebhookDelivery(ep.ID, j.event, string(j.body), status, attempts); err != nil {
+			log.Printf("webhook: record delivery for %s: %v", ep.ID, err)
+		}
+	}
+}
+
+// deliveryBudget bounds one endpoint's full retry sequence.
+const deliveryBudget = 60 * time.Second
 
 // deliverWithRetry attempts delivery up to maxAttempts times, backing off
 // between attempts. Returns the final status and the number of attempts made.

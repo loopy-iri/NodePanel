@@ -194,6 +194,7 @@ paths:
                 core_key: { type: string, description: "کلید مدیریت هسته از پنل PasarGuard (اختیاری)" }
                 grpc_port: { type: integer, description: "پورت gRPC سازگار PasarGuard (پیش‌فرض 62050)" }
                 cert_pem: { type: string, description: "گواهی سلف‌ساین نود برای pin (خالی = دریافت خودکار TOFU)" }
+                host_info: { type: string, description: "یادداشت آزاد اپراتور درباره‌ی هاست/کانفیگ؛ در پاسخ connection به خریدار داده می‌شود" }
                 config: { type: object, description: "کانفیگ ثابت Xray (اختیاری) برای push" }
       responses:
         "201":
@@ -214,7 +215,10 @@ paths:
               schema: { $ref: "#/components/schemas/NodeDetail" }
     patch:
       tags: [nodes]
-      summary: Update a node (name/address/grpc_port/keys/cert)
+      summary: Update a node (partial; omitted fields keep their stored value)
+      description: >
+        هر فیلد اختیاری است. فیلدی که ارسال نشود بدون تغییر می‌ماند؛ ارسال رشته‌ی
+        خالی یعنی «پاک کن». name و address را می‌توان حذف کرد ولی نمی‌توان خالی فرستاد.
       parameters: [{ $ref: "#/components/parameters/IdParam" }]
       requestBody:
         required: true
@@ -223,12 +227,13 @@ paths:
             schema:
               type: object
               properties:
-                name: { type: string }
-                address: { type: string }
-                grpc_port: { type: integer }
-                master_key: { type: string, description: "خالی = بدون تغییر" }
-                core_key: { type: string }
-                cert_pem: { type: string, description: "خالی = بدون تغییر" }
+                name: { type: string, description: "ارسال‌نشده = بدون تغییر" }
+                address: { type: string, description: "ارسال‌نشده = بدون تغییر" }
+                grpc_port: { type: integer, description: "ارسال‌نشده = بدون تغییر" }
+                master_key: { type: string, description: "ارسال‌نشده = بدون تغییر" }
+                core_key: { type: string, description: "ارسال‌نشده = بدون تغییر" }
+                cert_pem: { type: string, description: "ارسال‌نشده = بدون تغییر" }
+                host_info: { type: string, description: "ارسال‌نشده = بدون تغییر" }
       responses:
         "200": { description: Updated, content: { application/json: { schema: { $ref: "#/components/schemas/Node" } } } }
     delete:
@@ -514,6 +519,14 @@ components:
         master_key: { type: string }
         core_key: { type: string }
         cert_pem: { type: string }
+        cert_pinned:
+          type: boolean
+          description: >
+            false یعنی گواهی معتبری ذخیره نشده و ارتباط پنل با نود بدون تأیید هویت
+            انجام می‌شود (در حالی که master key در هر درخواست ارسال می‌گردد).
+        host_info:
+          type: string
+          description: "یادداشت آزاد اپراتور؛ در پاسخ connection به خریدار داده می‌شود"
         status: { type: string }
         version: { type: string }
         last_seen_at: { type: integer, format: int64 }
@@ -564,6 +577,12 @@ components:
         cert_pem: { type: string, description: "گواهی نود برای pin در پنل مشتری" }
         inbounds: { type: object, description: "بخش inbounds نود برای کپی در پنل مشتری" }
         sub_token: { type: string, description: "توکن صفحه‌ی عمومی اشتراک (/sub/{token})" }
+        host_info:
+          type: string
+          description: >
+            متن آزاد اپراتور درباره‌ی هاست/کانفیگ. محتوای آن اعتبارسنجی یا محدود
+            نمی‌شود، پس مصرف‌کننده باید آن را داده‌ی غیرقابل‌اعتماد در نظر بگیرد و
+            پیش از نمایش، متناسب با محیط خروجی escape کند.
         note: { type: string }
     Webhook:
       type: object

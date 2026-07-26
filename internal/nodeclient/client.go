@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -45,8 +46,26 @@ func New(baseURL, masterKey, certPEM string) *Client {
 	}
 }
 
+// IsPinned reports whether a stored certificate actually yields a pin. It is
+// false both when no certificate was stored and when the stored PEM is
+// unparseable — in either case requests to the node run WITHOUT verification
+// and the master key rides on every one of them, so callers should surface this
+// rather than let it pass for a healthy node.
+func IsPinned(certPEM string) bool {
+	certPEM = strings.TrimSpace(certPEM)
+	if certPEM == "" {
+		return false
+	}
+	block, _ := pem.Decode([]byte(certPEM))
+	return block != nil
+}
+
 // tlsConfigFor builds a TLS config that pins the exact certificate when one is
 // provided, or skips verification (self-signed friendly) when it is empty.
+//
+// The unpinned fallback is deliberate — nodes use self-signed certificates —
+// but it is indistinguishable from success at the transport layer, so the
+// panel exposes IsPinned in the node API/UI to make the weaker state visible.
 func tlsConfigFor(certPEM string) *tls.Config {
 	certPEM = strings.TrimSpace(certPEM)
 	if certPEM == "" {
@@ -54,6 +73,7 @@ func tlsConfigFor(certPEM string) *tls.Config {
 	}
 	block, _ := pem.Decode([]byte(certPEM))
 	if block == nil {
+		log.Printf("nodeclient: stored certificate is not valid PEM; continuing WITHOUT certificate pinning")
 		return &tls.Config{InsecureSkipVerify: true} //nolint:gosec // malformed pin -> fall back
 	}
 	pinned := block.Bytes

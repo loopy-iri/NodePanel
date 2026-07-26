@@ -66,8 +66,15 @@ func (a *API) collectUsageOnce(ctx context.Context) {
 			continue
 		}
 
-		_ = a.store.UpdateSubscriptionUsage(sub.ID, uv.UsedBytes)
-		_ = a.store.RecordUsage(sub.NodeTenantID, sub.NodeID, uv.PeriodID, uv.UsedBytes)
+		if err := a.store.UpdateSubscriptionUsage(sub.ID, uv.UsedBytes); err != nil {
+			log.Printf("usage collector: update usage for subscription %s: %v", sub.ID, err)
+		}
+		// Never discard this error: a broken usage_records write is invisible
+		// otherwise, and the audit trail an operator reaches for during a
+		// billing dispute would simply be empty.
+		if err := a.store.RecordUsage(sub.NodeTenantID, sub.NodeID, uv.PeriodID, uv.UsedBytes); err != nil {
+			log.Printf("usage collector: record usage sample for tenant %s: %v", sub.NodeTenantID, err)
+		}
 
 		// Emit usage threshold / over-quota events (once each per period).
 		a.emitUsageEvents(ctx, sub, uv.UsedBytes)

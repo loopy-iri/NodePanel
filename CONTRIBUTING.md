@@ -31,7 +31,7 @@ Never paste the panel API token, node master keys or customer keys.
   ```
 - Run locally:
   ```bash
-  PANEL_API_TOKEN=dev-token go run ./cmd/panel
+  PANEL_API_TOKEN=local-dev-token-please-change-me go run ./cmd/panel
   # UI:   http://localhost:8080/
   # Docs: http://localhost:8080/docs
   ```

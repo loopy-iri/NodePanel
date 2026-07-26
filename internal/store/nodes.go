@@ -31,27 +31,55 @@ func (s *Store) CreateNode(name, address, masterKey, certPEM, configJSON string,
 	return n, nil
 }
 
-// UpdateNode updates the editable fields of a node (name/address/grpc_port and
-// the credentials/cert). Empty master_key/cert keep the existing values.
-func (s *Store) UpdateNode(id, name, address string, grpcPort int, masterKey, coreKey, certPEM, hostInfo string) error {
+// NodeUpdate carries a partial node edit. A nil field means "leave unchanged";
+// a non-nil pointer to "" means "clear it".
+//
+// Pointers, not plain strings: the route is a PATCH, and with plain strings an
+// absent field is indistinguishable from an empty one. That silently wiped
+// core_key and host_info for any client that sent only the fields it meant to
+// change — the buyer-facing host note would vanish with nothing reporting an
+// error.
+type NodeUpdate struct {
+	Name      *string
+	Address   *string
+	GRPCPort  *int
+	MasterKey *string
+	CoreKey   *string
+	CertPEM   *string
+	HostInfo  *string
+}
+
+// UpdateNode applies a partial edit to a node.
+func (s *Store) UpdateNode(id string, upd NodeUpdate) error {
 	cur, err := s.GetNode(id)
 	if err != nil {
 		return err
 	}
-	if grpcPort <= 0 {
-		grpcPort = cur.GRPCPort
+
+	name := pick(upd.Name, cur.Name)
+	address := pick(upd.Address, cur.Address)
+	masterKey := pick(upd.MasterKey, cur.MasterKey)
+	coreKey := pick(upd.CoreKey, cur.CoreKey)
+	certPEM := pick(upd.CertPEM, cur.CertPEM)
+	hostInfo := pick(upd.HostInfo, cur.HostInfo)
+	grpcPort := cur.GRPCPort
+	if upd.GRPCPort != nil && *upd.GRPCPort > 0 {
+		grpcPort = *upd.GRPCPort
 	}
-	if masterKey == "" {
-		masterKey = cur.MasterKey
-	}
-	if certPEM == "" {
-		certPEM = cur.CertPEM
-	}
+
 	_, err = s.db.Exec(
 		`UPDATE nodes SET name = ?, address = ?, grpc_port = ?, master_key = ?, core_key = ?, cert_pem = ?, host_info = ? WHERE id = ?`,
 		name, address, grpcPort, masterKey, coreKey, certPEM, hostInfo, id,
 	)
 	return err
+}
+
+// pick returns *v when set, otherwise the current value.
+func pick(v *string, current string) string {
+	if v == nil {
+		return current
+	}
+	return *v
 }
 
 func (s *Store) SetNodeHostInfo(id, hostInfo string) error {

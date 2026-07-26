@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	_ "embed"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -69,6 +70,9 @@ func migrate(db *sql.DB) error {
 			return fmt.Errorf("statement %q: %w", firstLine(stmt), err)
 		}
 	}
+	if err := migrateUsageRecords(db); err != nil {
+		return err
+	}
 	// Backfill subscription tokens for rows created before this column existed.
 	rows, err := db.Query(`SELECT id FROM subscriptions WHERE sub_token IS NULL OR sub_token = ''`)
 	if err != nil {
@@ -97,10 +101,60 @@ func newSubToken() string {
 	return strings.ReplaceAll(uuid.NewString(), "-", "")
 }
 
+// migrateUsageRecords rebuilds usage_records without its foreign key to
+// tenants.
+//
+// tenant_id holds the tenant id on the NODE, which is not a row in the local
+// tenants table — and nothing ever inserts into tenants. With
+// PRAGMA foreign_keys=ON every insert therefore failed the FK check, and
+// because the caller discarded the error, usage history was silently empty for
+// the life of the database. SQLite cannot drop a constraint in place, so the
+// table is rebuilt; existing rows are copied, though on affected databases
+// there are none by definition.
+func migrateUsageRecords(db *sql.DB) error {
+	var ddl string
+	err := db.QueryRow(
+		`SELECT COALESCE(sql,'') FROM sqlite_master WHERE type='table' AND name='usage_records'`,
+	).Scan(&ddl)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil // fresh database: schema.sql already created the good shape
+	}
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(ddl, "REFERENCES tenants") {
+		return nil // already migrated
+	}
+
+	stmts := []string{
+		`CREATE TABLE usage_records_new (
+			id                    TEXT PRIMARY KEY,
+			tenant_id             TEXT NOT NULL,
+			node_id               TEXT NOT NULL,
+			period_id             INTEGER NOT NULL,
+			ts                    INTEGER NOT NULL,
+			used_bytes_cumulative INTEGER NOT NULL
+		)`,
+		`INSERT INTO usage_records_new (id, tenant_id, node_id, period_id, ts, used_bytes_cumulative)
+		 SELECT id, tenant_id, node_id, period_id, ts, used_bytes_cumulative FROM usage_records`,
+		`DROP TABLE usage_records`,
+		`ALTER TABLE usage_records_new RENAME TO usage_records`,
+		`CREATE INDEX IF NOT EXISTS idx_usage_tenant ON usage_records(tenant_id, period_id)`,
+	}
+	for _, stmt := range stmts {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("usage_records migration %q: %w", firstLine(stmt), err)
+		}
+	}
+	return nil
+}
+
 // applySchema executes each statement in schema.sql individually so the code
-// does not depend on the driver supporting multi-statement Exec.
+// does not depend on the driver supporting multi-statement Exec. Line comments
+// are stripped first: the file is split on ";", and a semicolon inside a
+// comment would otherwise cut a statement in half.
 func applySchema(db *sql.DB) error {
-	for _, stmt := range strings.Split(schema, ";") {
+	for _, stmt := range strings.Split(stripSQLComments(schema), ";") {
 		s := strings.TrimSpace(stmt)
 		if s == "" {
 			continue
@@ -110,6 +164,18 @@ func applySchema(db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+func stripSQLComments(sql string) string {
+	lines := strings.Split(sql, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if i := strings.Index(line, "--"); i >= 0 {
+			line = line[:i]
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }
 
 func firstLine(s string) string {

@@ -66,12 +66,19 @@ func (a *API) loadSubInfoByToken(ctx context.Context, token string) (*subInfoRes
 }
 
 // subInfo serves the public subscription info as JSON (no auth; token-gated).
+//
+// The body carries the node API key, so it must never be cached: without an
+// explicit no-store any intermediary — corporate proxy, CDN, browser history —
+// may retain a live credential. The HTML page already sets this.
 func (a *API) subInfo(w http.ResponseWriter, r *http.Request) {
 	info, ok := a.loadSubInfoByToken(r.Context(), chi.URLParam(r, "token"))
 	if !ok {
 		writeError(w, http.StatusNotFound, "subscription not found")
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Referrer-Policy", "no-referrer")
 	writeJSON(w, http.StatusOK, info)
 }
 
@@ -119,6 +126,7 @@ func (a *API) subPage(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
 	_ = subPageTmpl.Execute(w, data)
 }
 

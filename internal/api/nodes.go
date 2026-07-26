@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/pasarguard/panel/internal/domain"
 	"github.com/pasarguard/panel/internal/nodeclient"
+	"github.com/pasarguard/panel/internal/store"
 )
 
 func (a *API) clientForNode(n *domain.Node) *nodeclient.Client {
@@ -65,6 +68,13 @@ func (a *API) registerNode(w http.ResponseWriter, r *http.Request) {
 
 	if len(req.Config) > 0 {
 		if err := client.ApplyConfig(ctx, string(req.Config)); err != nil {
+			// Roll the row back. Leaving it behind strands a node record holding
+			// a master key for a node that accepted nothing, and — since nothing
+			// makes `address` unique — the operator's obvious next move (fix the
+			// config, submit again) silently creates a duplicate node.
+			if delErr := a.store.DeleteNode(node.ID); delErr != nil {
+				log.Printf("register node %s: rollback after rejected config failed: %v", node.ID, delErr)
+			}
 			writeError(w, http.StatusBadGateway, "node rejected config: "+err.Error())
 			return
 		}
@@ -141,6 +151,11 @@ type nodeDetailResponse struct {
 	LastSeenAt  int64  `json:"last_seen_at,omitempty"`
 	CreatedAt   int64  `json:"created_at"`
 	HostInfo    string `json:"host_info"`
+	// CertPinned is false when no usable certificate is stored, meaning the
+	// panel talks to this node WITHOUT verifying its identity while sending the
+	// master key on every request. That state is otherwise indistinguishable
+	// from a healthy node, so it is reported explicitly.
+	CertPinned bool `json:"cert_pinned"`
 }
 
 // getNodeDetail returns a node's full connection info (host, service/gRPC ports,
@@ -172,20 +187,25 @@ func (a *API) getNodeDetail(w http.ResponseWriter, r *http.Request) {
 		LastSeenAt:  node.LastSeenAt,
 		CreatedAt:   node.CreatedAt,
 		HostInfo:    node.HostInfo,
+		CertPinned:  nodeclient.IsPinned(node.CertPEM),
 	})
 }
 
+// updateNodeRequest is a PATCH body: every field is optional and an OMITTED
+// field leaves the stored value alone. Pointers make "absent" distinguishable
+// from "set to empty" — with plain strings, a client sending only the fields it
+// wanted to change silently erased the others.
 type updateNodeRequest struct {
-	Name      string `json:"name"`
-	Address   string `json:"address"`
-	GRPCPort  int    `json:"grpc_port"`
-	MasterKey string `json:"master_key"` // empty keeps existing
-	CoreKey   string `json:"core_key"`
-	CertPEM   string `json:"cert_pem"` // empty keeps existing
-	HostInfo  string `json:"host_info"`
+	Name      *string `json:"name,omitempty"`
+	Address   *string `json:"address,omitempty"`
+	GRPCPort  *int    `json:"grpc_port,omitempty"`
+	MasterKey *string `json:"master_key,omitempty"`
+	CoreKey   *string `json:"core_key,omitempty"`
+	CertPEM   *string `json:"cert_pem,omitempty"`
+	HostInfo  *string `json:"host_info,omitempty"`
 }
 
-// updateNode edits a node's name/address/ports/keys/cert.
+// updateNode applies a partial edit to a node's name/address/ports/keys/cert.
 func (a *API) updateNode(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var req updateNodeRequest
@@ -193,15 +213,33 @@ func (a *API) updateNode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid json body")
 		return
 	}
-	if strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.Address) == "" {
-		writeError(w, http.StatusBadRequest, "name and address are required")
+	// Name and address may be omitted, but not blanked: a node with neither is
+	// unusable and unreachable.
+	if req.Name != nil && strings.TrimSpace(*req.Name) == "" {
+		writeError(w, http.StatusBadRequest, "name cannot be empty")
 		return
 	}
-	if err := a.store.UpdateNode(id, req.Name, req.Address, req.GRPCPort, req.MasterKey, req.CoreKey, req.CertPEM, req.HostInfo); err != nil {
+	if req.Address != nil && strings.TrimSpace(*req.Address) == "" {
+		writeError(w, http.StatusBadRequest, "address cannot be empty")
+		return
+	}
+	if err := a.store.UpdateNode(id, store.NodeUpdate{
+		Name:      req.Name,
+		Address:   req.Address,
+		GRPCPort:  req.GRPCPort,
+		MasterKey: req.MasterKey,
+		CoreKey:   req.CoreKey,
+		CertPEM:   req.CertPEM,
+		HostInfo:  req.HostInfo,
+	}); err != nil {
 		writeNotFoundOr500(w, err)
 		return
 	}
-	node, _ := a.store.GetNode(id)
+	node, err := a.store.GetNode(id)
+	if err != nil {
+		writeNotFoundOr500(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, node)
 }
 
@@ -256,7 +294,13 @@ func (a *API) setXrayVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req versionRequest
-	_ = decodeJSON(r, &req)
+	// An absent body means "latest". A malformed one is rejected rather than
+	// silently treated as empty, which would push a different version onto the
+	// node than the operator asked for.
+	if err := decodeJSON(r, &req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 190*time.Second)
 	defer cancel()
 	if err := a.clientForNode(node).SetXrayVersion(ctx, req.Version); err != nil {
@@ -274,7 +318,10 @@ func (a *API) updateNodeBinary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req versionRequest
-	_ = decodeJSON(r, &req)
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 190*time.Second)
 	defer cancel()
 	if err := a.clientForNode(node).UpdateNode(ctx, req.Version); err != nil {
@@ -289,7 +336,14 @@ func (a *API) updateNodeBinary(w http.ResponseWriter, r *http.Request) {
 // surface as a raw 500 and, worse, live tenants would be left unmanaged.
 func (a *API) deleteNode(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	if n, err := a.store.CountSubscriptionsByNode(id); err == nil && n > 0 {
+	// Fail closed: a DB error here must not skip the guard and let the delete
+	// proceed against a node that may well still have live subscriptions.
+	n, err := a.store.CountSubscriptionsByNode(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to check node subscriptions: "+err.Error())
+		return
+	}
+	if n > 0 {
 		writeError(w, http.StatusConflict,
 			fmt.Sprintf("node has %d subscription(s); delete them first", n))
 		return

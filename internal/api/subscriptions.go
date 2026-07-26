@@ -257,25 +257,32 @@ func (a *API) topupQuota(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newQuota := sub.QuotaBytes + req.AddBytes
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
+
+	// Apply the increment atomically first, so two concurrent top-ups cannot
+	// both compute old+delta from the same starting value and lose one.
+	newQuota, err := a.store.AddSubscriptionQuota(sub.ID, req.AddBytes)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update quota")
+		return
+	}
 
 	if _, err := a.clientForNode(node).SetQuota(ctx, sub.NodeTenantID, nodeclient.SetQuotaRequest{
 		QuotaBytes:       newQuota,
 		CreditLimitBytes: sub.CreditLimitBytes,
 		ExpireAt:         sub.EndAt,
 	}); err != nil {
+		// Undo the local increment so the panel does not claim quota the node
+		// never received.
+		if _, rbErr := a.store.AddSubscriptionQuota(sub.ID, -req.AddBytes); rbErr != nil {
+			log.Printf("topup %s: node rejected the quota AND the local rollback failed: %v", sub.ID, rbErr)
+		}
 		writeError(w, http.StatusBadGateway, "node error: "+err.Error())
 		return
 	}
 	// Topping up reactivates a quota-suspended tenant on the node side too.
 	_ = a.clientForNode(node).Resume(ctx, sub.NodeTenantID)
-
-	if err := a.store.SetSubscriptionQuota(sub.ID, newQuota, sub.CreditLimitBytes, sub.EndAt); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update quota")
-		return
-	}
 	_ = a.store.UpdateSubscriptionStatus(sub.ID, "active")
 	// Re-arm usage notifications for the new quota so future crossings re-fire.
 	_ = a.store.UpdateSubscriptionNotified(sub.ID, thresholdLevel(sub.UsedBytes, newQuota))
@@ -317,6 +324,12 @@ func (a *API) customerUsage(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteSubscription deprovisions the tenant from its node and removes the row.
+//
+// The node-side delete must succeed first. Dropping the local row is what
+// destroys the only record of node_tenant_id, so deleting it after a failed
+// node call would strand a live tenant that keeps serving traffic with the
+// credentials the customer already holds — and, with the subscription gone,
+// nothing would ever point at it again.
 func (a *API) deleteSubscription(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	sub, err := a.store.GetSubscription(id)
@@ -327,8 +340,16 @@ func (a *API) deleteSubscription(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 	if sub.NodeTenantID != "" {
-		if node, err := a.store.GetNode(sub.NodeID); err == nil {
-			_ = a.clientForNode(node).Delete(ctx, sub.NodeTenantID)
+		node, err := a.store.GetNode(sub.NodeID)
+		if err != nil {
+			writeError(w, http.StatusBadGateway,
+				"cannot reach the node record to deprovision this subscription: "+err.Error())
+			return
+		}
+		if err := a.clientForNode(node).Delete(ctx, sub.NodeTenantID); err != nil {
+			writeError(w, http.StatusBadGateway,
+				"node refused to remove the tenant, so the subscription was kept: "+err.Error())
+			return
 		}
 	}
 	if err := a.store.DeleteSubscription(id); err != nil {

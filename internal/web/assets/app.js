@@ -89,7 +89,11 @@ function modal(title, bodyHTML, onMount) {
 }
 const closeModal = () => (document.getElementById("modalRoot").innerHTML = "");
 
-const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+// Escapes the single quote as well as the double: several templates interpolate
+// values into single-quoted attributes (e.g. onclick="f('...')"), where an
+// unescaped ' would break out of the attribute.
+const esc = (s) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 function fmtBytes(n) {
   n = Number(n || 0);
   if (n <= 0) return "0";
@@ -472,6 +476,7 @@ async function nodeDetailModal(nodeID) {
        <textarea id="dHost" rows="3" readonly spellcheck="false" style="font-family:ui-monospace,monospace;font-size:12px">${esc(d.host_info || "— (تنظیم نشده)")}</textarea></div>
      <div class="field"><label>گواهی نود (Certificate)</label>
        <textarea id="dCert" rows="6" readonly spellcheck="false" style="font-family:ui-monospace,monospace;font-size:12px">${esc(d.cert_pem || "—")}</textarea></div>
+     ${d.cert_pinned ? "" : `<p class="muted" style="font-size:12px;margin:0 0 8px;color:#c0392b">⚠️ گواهی این نود پین نشده است؛ ارتباط پنل با نود بدون تأیید هویت انجام می‌شود (master key در هر درخواست ارسال می‌شود). برای رفع، گواهی نود را در فرم ویرایش ثبت کنید.</p>`}
      <p class="muted" style="font-size:12px;margin:0 0 8px">برای فروش، مشتری از کلید اشتراکش استفاده می‌کند. برای مدیریت هسته‌ی مشترک از پنل PasarGuard خودت، از Core key استفاده کن.</p>
      <div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:6px">
        <button class="btn sm ghost" id="cStart">شروع هسته</button>
